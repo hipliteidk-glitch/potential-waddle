@@ -121,7 +121,10 @@ def captions(beats: Iterable[Dict[str, object]], directory: Path):
 
 
 def story_video(beats, name: str, workdir: Path):
+    target_duration = sum(beat["duration"] for beat in beats)
     audio = voiceover(beats, workdir / f"voiceover_{name}.mp3")
+    # Never let a longer narration extend the requested story timeline.
+    audio = audio.subclip(0, min(audio.duration, target_duration))
     clips = []
     for beat, slide in zip(beats, slides(beats, name, workdir / f"slides_{name}")):
         duration = beat["duration"]
@@ -135,14 +138,25 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", default="doraemon_834ab_recap.mp4")
     parser.add_argument("--workdir", default="recap_assets")
+    parser.add_argument("--duration", type=float, default=90, help="Target total duration in seconds (default: 90)")
+    parser.add_argument("--fps", type=int, default=CONFIG["fps"], help="Output frame rate (default: 24)")
     parser.add_argument("--bgm", help="Optional music file, mixed at 30%% volume")
-    args = parser.parse_args(); workdir = Path(args.workdir); workdir.mkdir(exist_ok=True)
-    first, second = story_video(STORY1_BEATS, "GameCreator", workdir), story_video(STORY2_BEATS, "Halloween", workdir)
+    args = parser.parse_args()
+    if args.duration <= 0:
+        parser.error("--duration must be greater than zero")
+    if args.fps <= 0:
+        parser.error("--fps must be greater than zero")
+    workdir = Path(args.workdir); workdir.mkdir(exist_ok=True)
+    original_duration = sum(beat["duration"] for beat in STORY1_BEATS + STORY2_BEATS)
+    scale = args.duration / original_duration
+    def scaled(beats):
+        return [{**beat, "duration": beat["duration"] * scale} for beat in beats]
+    first, second = story_video(scaled(STORY1_BEATS), "GameCreator", workdir), story_video(scaled(STORY2_BEATS), "Halloween", workdir)
     final = concatenate_videoclips([first.fadeout(.5), second.fadein(.5)], method="compose")
     if args.bgm:
         music = AudioFileClip(args.bgm).volumex(.3).set_duration(final.duration)
         final = final.set_audio(CompositeAudioClip([final.audio, music]))
-    final.write_videofile(args.output, fps=CONFIG["fps"], codec="libx264", audio_codec="aac", threads=4, preset="medium")
+    final.write_videofile(args.output, fps=args.fps, codec="libx264", audio_codec="aac", threads=4, preset="medium")
 
 
 if __name__ == "__main__":
