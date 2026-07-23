@@ -1,0 +1,4 @@
+moviepy==1.0.3
+gTTS>=2.5,<3
+Pillow>=9.2,<10  # MoviePy 1.0.3 uses the legacy Image.ANTIALIAS API
+numpy>=1.24,<3
