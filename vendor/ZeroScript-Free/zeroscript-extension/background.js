@@ -51,6 +51,12 @@ let studioApp = null;
 // Assistant Settings > MCP Servers inside Studio (validated live 3x), which
 // "open Roblox Studio" wording completely fails to convey.
 let studioProc = null;
+// The active TARGET profile reported by the bridge ({id, kind, name, short,
+// offline_hint}). ZeroScript is no longer Roblox-only: the bridge decides what
+// it drives, and the UI/prompt word themselves from this. Null until the first
+// status message arrives (or on an older bridge) - consumers fall back to the
+// Roblox defaults so nothing regresses.
+let targetCache = null;
 
 function log(...a) {
   console.log("[zs-bg]", ...a);
@@ -218,12 +224,14 @@ function handleBridgeMessage(msg) {
     studioProc = msg.studio_proc;
   }
   if (msg.type === "studio_status") {
+    if (msg.target) targetCache = msg.target;
     resolvePending(msg.id, { ok: true, studio: studioConnected });
     broadcastStatus();
     return;
   }
   if (msg.type === "connected") {
     mcpAlive = !!msg.mcp_alive;
+    if (msg.target) targetCache = msg.target;
     if (Array.isArray(msg.tools)) toolsCache = msg.tools;
     if (Array.isArray(msg.servers)) serversCache = msg.servers;
     broadcastStatus();
@@ -234,6 +242,7 @@ function handleBridgeMessage(msg) {
     return;
   }
   if (msg.type === "tools") {
+    if (msg.target) targetCache = msg.target;
     if (Array.isArray(msg.tools)) toolsCache = msg.tools;
     if (Array.isArray(msg.servers)) serversCache = msg.servers;
     mcpAlive = !!msg.mcp_alive;
@@ -286,7 +295,7 @@ function failAllPending(reason) {
 
 // ── status push to any open DeepSeek tab + popup ─────────────────────────
 function statusObj() {
-  return { type: "zs-status", connected, mcpAlive, studio: studioConnected, studioApp, studioProc, tools: toolsCache.length, servers: serversCache };
+  return { type: "zs-status", connected, mcpAlive, studio: studioConnected, studioApp, studioProc, tools: toolsCache.length, servers: serversCache, target: targetCache };
 }
 
 function broadcastStatus() {

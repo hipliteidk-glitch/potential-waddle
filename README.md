@@ -34,3 +34,11 @@ Gemini, Kimi, GLM, Qwen, Arena, Meta AI) into a Roblox Studio agent via Studio's
 built-in MCP server. It is licensed GPL-3.0; see
 `vendor/ZeroScript-Free/LICENSE` and `vendor/ZeroScript-Free/VENDOR.md` (upstream
 commit and re-sync instructions).
+
+This copy is **no longer Roblox-only**: a `target` profile in
+`vendor/ZeroScript-Free/config.json` lets the same bridge and extension drive any
+MCP server (Blender, a filesystem server, your own). Roblox is just the default
+profile, and its behaviour is unchanged — the system prompt it sends is
+byte-for-byte identical to upstream. See `vendor/ZeroScript-Free/TARGETS.md` for
+the setup, `config.examples.json` for ready-to-copy profiles, and
+`zeroscript-extension/test-target.js` for the regression tests.

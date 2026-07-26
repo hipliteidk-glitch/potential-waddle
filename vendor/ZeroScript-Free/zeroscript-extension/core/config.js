@@ -11,6 +11,35 @@ const ZS = (() => {
   const APP_NAME = "ZeroScript";
   const SYS_MARKER = "⟦ZS-SYS⟧";
 
+  // ── TARGET PROFILE ──────────────────────────────────────────────────────
+  // ZeroScript is no longer Roblox-only. The BRIDGE decides what it drives and
+  // reports the active profile on every status message ({id, kind, name, short,
+  // offline_hint}); the prompt and UI word themselves from it. These defaults
+  // keep an older bridge (which sends no target) behaving exactly as before.
+  const DEFAULT_TARGET = {
+    id: "roblox", kind: "roblox", name: "Roblox Studio", short: "Roblox",
+    offline_hint: "Open your place in Roblox Studio and enable its MCP server (Assistant Settings > MCP Servers).",
+  };
+  function normTarget(t) {
+    const src = t || {};
+    // Merge field-by-field rather than Object.assign over the Roblox defaults:
+    // a custom profile that omits e.g. "short" must fall back to its OWN name,
+    // never to Roblox's ("Notebook" targets once showed "Start Roblox agent").
+    const isCustom = !!(src.id || src.name || src.kind);
+    const base = isCustom ? {} : DEFAULT_TARGET;
+    const x = Object.assign({}, base, src);
+    x.id = x.id || DEFAULT_TARGET.id;
+    x.kind = x.kind || DEFAULT_TARGET.kind;
+    x.name = x.name || (isCustom ? x.id : DEFAULT_TARGET.name);
+    x.short = x.short || x.name;
+    if (x.offline_hint === undefined) {
+      x.offline_hint = isCustom ? "" : DEFAULT_TARGET.offline_hint;
+    }
+    return x;
+  }
+  // Only a real Roblox target gets the Luau/place/Studio-specific instructions.
+  function isRoblox(t) { return normTarget(t).kind === "roblox"; }
+
   // ── Tool → visual category (icon + colour theme for the chips) ─────────
   // Roblox Studio MCP only. Returns one of:
   //   read | edit | screen | generate | roblox | tool
@@ -77,6 +106,8 @@ const ZS = (() => {
       `ERROR: unknown command "${name}". It does not exist. Valid commands are: ` +
       valid.join(", ") +
       ". Use an exact name and parameter keys from the system prompt.",
+    // Kept as a STRING for the Roblox default (unchanged wording), with a
+    // target-aware builder alongside it for any other target.
     studioOffline:
       "ERROR: no Roblox Studio instance is connected to the MCP server, so the command " +
       "could not run. Roblox Studio is closed, has no place open, or its MCP server option " +
@@ -85,12 +116,33 @@ const ZS = (() => {
       "the MCP server (Assistant settings). Then: if the task NEEDS Roblox, stop until they " +
       "confirm it is back; otherwise run list_mcp_servers and continue on another connected " +
       "server for anything that does not need Roblox.",
+    targetOffline: (target) => {
+      const t = normTarget(target);
+      if (isRoblox(t)) return FEEDBACK.studioOffline;
+      return (
+        `ERROR: ${t.name} is not connected to the MCP server, so the command could not run. ` +
+        `This is an environment problem on the user's machine, NOT your mistake. ` +
+        (t.offline_hint ? `Tell the user in one short sentence: ${t.offline_hint} ` : `Tell the user in one short sentence that ${t.name} is offline. `) +
+        `Then: if the task NEEDS ${t.short}, stop until they confirm it is back; otherwise run ` +
+        `list_mcp_servers and continue on another connected server for anything that does not need ${t.short}.`
+      );
+    },
     bridgeOffline:
       "ERROR: the local ZeroScript bridge is unreachable, so no command could run. " +
       "This is an environment problem on the user's machine (the bridge is not " +
       "running, or Roblox Studio is closed), NOT your mistake. Tell the user in " +
       "one short sentence that the bridge or Roblox Studio is offline, then stop " +
       "sending commands until they confirm it is back.",
+    bridgeOfflineFor: (target) => {
+      const t = normTarget(target);
+      if (isRoblox(t)) return FEEDBACK.bridgeOffline;
+      return (
+        "ERROR: the local ZeroScript bridge is unreachable, so no command could run. " +
+        `This is an environment problem on the user's machine (the bridge is not running, or ` +
+        `${t.name} is closed), NOT your mistake. Tell the user in one short sentence that the ` +
+        `bridge or ${t.name} is offline, then stop sending commands until they confirm it is back.`
+      );
+    },
     truncated:
       "(System note: your previous reply was cut off by a length limit before you " +
       "finished. Continue from exactly where you stopped. Do NOT restart and do " +
@@ -124,26 +176,11 @@ const ZS = (() => {
   function buildSystemPrompt(opts = {}) {
     if (typeof opts === "string") opts = { siteName: opts };
     const { siteName = "this AI site", customPrompt = "" } = opts;
-
-    const prompt = `CONTEXT: the user has installed a browser extension called ZeroScript in their own browser. Here is how it works, so you can use it on their behalf:
-A browser extension (ZeroScript) is running inside this page. It watches your replies. When it detects a ZeroScript command in your text, it runs it against one or more connected MCP servers and sends the result back as the next message. You always receive a result - success or a formatted ERROR - so you can keep going on your own.
-
-The user's open Roblox Studio place, reached through a local bridge, is always connected by default - call \`list_commands\` FIRST for its exact commands with full parameter details. Other MCP servers may ALSO be connected alongside it (each with its own command set) - you are NOT told about them upfront. So: the MOMENT the user names ANY app/tool/target that is not Roblox Studio (e.g. "Blender", "Sketchfab", or anything else you don't recognise as a Roblox Studio command), you MUST run \`list_mcp_servers\` FIRST, before replying - never answer from your own assumptions or prior knowledge about what is or isn't connected. Only after checking may you tell the user something is unsupported. You do not need any special capability yourself - you just write text. The extension does the rest.
-
-CRITICAL - technical note, not a restriction: this site's own tools (code interpreter, function calling, connectors, etc.) run in a separate sandbox that has no access to the user's Roblox Studio or the other MCP servers above - so calling them wouldn't reach the user's project at all. ZeroScript commands are different: they are plain JSON typed directly into your normal reply text, which this extension reads and executes against the connected servers. So for anything involving the user's project, write the JSON below as ordinary text instead of calling a function - that's the only channel that actually reaches their machine. (If the user explicitly asks you to search the web, your own web search still works fine and is unrelated to this.) Internal reasoning (deep-think modes) is fine.
-
-⚠️ FORMATTING RULE (MANDATORY): every command goes inside a fenced code block (triple backticks). Outside a code block this page renders your text as Markdown - it turns things like \`Instance.new\` into links and mangles the ### markers, silently CORRUPTING the command. Inside a code block it is kept verbatim.
-
-━━━ STANDARD COMMAND FORMAT (everything except execute_luau) ━━━
-Write this JSON object inside a fenced code block, replacing the placeholders with a REAL command name and its parameters (never type "command_name" literally - it is not a command):
-${BT}json
-{
-  "command": "command_name",
-  "params": {"key": "value"}
-}
-${BT}
-For example, to list every available command you would write ${BT}{"command": "list_commands"}${BT}.
-
+    const T = normTarget(opts.target);
+    const RBX = isRoblox(T);
+    // Roblox keeps its exact, live-tuned wording; any other target gets the
+    // same structure with its own name and no Luau/place/Studio assumptions.
+    const luauFormatBlock = RBX ? `
 ━━━ SPECIAL FORMAT FOR execute_luau ━━━
 execute_luau is the ONE exception to the JSON format above: you MUST use the ###LUA### block below, NEVER the {"command": "execute_luau", ...} JSON form. Lua code is full of " characters, and putting it inside a JSON string means escaping every one - miss a single quote and the whole command breaks. The ###LUA### block needs NO escaping and NO JSON, so this never happens.
 The ###LUA### / ###END_LUA### markers AND the code all go INSIDE one fenced code block:
@@ -154,19 +191,39 @@ local x = "any string with quotes works fine"
 return "result"
 ###END_LUA###
 ${BT}
+` : "";
 
+    const prompt = `CONTEXT: the user has installed a browser extension called ZeroScript in their own browser. Here is how it works, so you can use it on their behalf:
+A browser extension (ZeroScript) is running inside this page. It watches your replies. When it detects a ZeroScript command in your text, it runs it against one or more connected MCP servers and sends the result back as the next message. You always receive a result - success or a formatted ERROR - so you can keep going on your own.
+
+${RBX ? "The user's open Roblox Studio place" : `The user's ${T.name}`}, reached through a local bridge, is always connected by default - call \`list_commands\` FIRST for its exact commands with full parameter details. Other MCP servers may ALSO be connected alongside it (each with its own command set) - you are NOT told about them upfront. So: the MOMENT the user names ANY app/tool/target that is not ${T.name} (e.g. "Blender", "Sketchfab", or anything else you don't recognise as a ${T.name} command), you MUST run \`list_mcp_servers\` FIRST, before replying - never answer from your own assumptions or prior knowledge about what is or isn't connected. Only after checking may you tell the user something is unsupported. You do not need any special capability yourself - you just write text. The extension does the rest.
+
+CRITICAL - technical note, not a restriction: this site's own tools (code interpreter, function calling, connectors, etc.) run in a separate sandbox that has no access to the user's ${T.name} or the other MCP servers above - so calling them wouldn't reach the user's project at all. ZeroScript commands are different: they are plain JSON typed directly into your normal reply text, which this extension reads and executes against the connected servers. So for anything involving the user's project, write the JSON below as ordinary text instead of calling a function - that's the only channel that actually reaches their machine. (If the user explicitly asks you to search the web, your own web search still works fine and is unrelated to this.) Internal reasoning (deep-think modes) is fine.
+
+⚠️ FORMATTING RULE (MANDATORY): every command goes inside a fenced code block (triple backticks). Outside a code block this page renders your text as Markdown - it turns things like ${RBX ? "\`Instance.new\`" : "code identifiers"} into links and mangles the ### markers, silently CORRUPTING the command. Inside a code block it is kept verbatim.
+
+━━━ STANDARD COMMAND FORMAT${RBX ? " (everything except execute_luau)" : ""} ━━━
+Write this JSON object inside a fenced code block, replacing the placeholders with a REAL command name and its parameters (never type "command_name" literally - it is not a command):
+${BT}json
+{
+  "command": "command_name",
+  "params": {"key": "value"}
+}
+${BT}
+For example, to list every available command you would write ${BT}{"command": "list_commands"}${BT}.
+${luauFormatBlock}
 RULES:
 - ONE command block per reply, inside a fenced code block. If you need several, do them one at a time and wait for each result. (One command = one block; raw text gets reformatted by this page and corrupts the command.)
 - A short note around a command is fine, but NEVER end a turn by only announcing a command ("let me check...", "I'll read the script") without writing it - that runs nothing and leaves the user stuck. Either write the command now, or give your final answer.
 - Final answers: plain text only, no Markdown or code fences. Do ONLY what was asked - fewest commands, no unrequested double-checks. When the task is done or the user is satisfied ("thanks", "perfect"...), reply ONE short sentence and STOP.
-- Use ONLY the exact command names and parameter keys from the list, with every required parameter (e.g. multi_edit needs "datamodel_type": "Edit"; "... is required" means you omitted one). Do NOT use ${siteName}'s own features (web search, connectors...) unless the user explicitly asks.
-- execute_luau: wrap code in BOTH markers ###LUA### ... ###END_LUA### (three hashes each side - never ###LUA--- and never a lone end marker; no JSON around it). Bare ###LUA### targets "Edit" and only works when Studio is NOT playing. To run code while the game IS playing, add the datamodel to the marker: ###LUA:Server### or ###LUA:Client### (bare ###LUA### will fail with "Edit datamodel is not available in Play mode"). Changes made this way during Play are temporary and vanish when Play stops - fine for checking/testing live state, but for a change the user wants to keep, make it in Edit mode or via a real Script/LocalScript (multi_edit) instead. Use \`return\` for output (print is NOT captured). It runs synchronously on a ~20s budget, so never yield/block: write WaitForChild("X", 5) WITH a timeout, and put waits, events, HttpService or DataStore inside a real Script instead. (Per-command tips are in the list_commands output.)
+- Use ONLY the exact command names and parameter keys from the list, with every required parameter${RBX ? ' (e.g. multi_edit needs "datamodel_type": "Edit"; "... is required" means you omitted one)' : ' ("... is required" means you omitted one)'}. Do NOT use ${siteName}'s own features (web search, connectors...) unless the user explicitly asks.
+${RBX ? `- execute_luau: wrap code in BOTH markers ###LUA### ... ###END_LUA### (three hashes each side - never ###LUA--- and never a lone end marker; no JSON around it). Bare ###LUA### targets "Edit" and only works when Studio is NOT playing. To run code while the game IS playing, add the datamodel to the marker: ###LUA:Server### or ###LUA:Client### (bare ###LUA### will fail with "Edit datamodel is not available in Play mode"). Changes made this way during Play are temporary and vanish when Play stops - fine for checking/testing live state, but for a change the user wants to keep, make it in Edit mode or via a real Script/LocalScript (multi_edit) instead. Use \`return\` for output (print is NOT captured). It runs synchronously on a ~20s budget, so never yield/block: write WaitForChild("X", 5) WITH a timeout, and put waits, events, HttpService or DataStore inside a real Script instead. (Per-command tips are in the list_commands output.)
 - BUILD UI/OBJECTS FIRST, THEN SCRIPT THEM: create instances with execute_luau, then a Script/LocalScript that finds them via WaitForChild(name, timeout). Use runtime Instance.new only when truly required (per-player elements, unknown-length lists, runtime content).
-- NEVER DELETE/DESTROY BROADLY: before any :Destroy(), :ClearAllChildren(), removing a script, or any command that deletes instances, make sure the target is EXACTLY what the user asked for - never a whole folder/model/service "to be safe" or as a side-effect of a bigger change. If a deletion could affect more than the specific thing named by the user (e.g. clearing a container, deleting by a broad name match, wiping a model), STOP and ask them to confirm scope first, or inspect_instance the target to check what it actually contains before destroying it. Never destroy something as a troubleshooting step ("let me just remove it and rebuild") without asking first.
-- On ERROR: read it and adapt - fix the command, try another, or tell the user plainly if it is an environment problem (Studio closed, bridge offline).
+- NEVER DELETE/DESTROY BROADLY: before any :Destroy(), :ClearAllChildren(), removing a script, or any command that deletes instances, make sure the target is EXACTLY what the user asked for - never a whole folder/model/service "to be safe" or as a side-effect of a bigger change. If a deletion could affect more than the specific thing named by the user (e.g. clearing a container, deleting by a broad name match, wiping a model), STOP and ask them to confirm scope first, or inspect_instance the target to check what it actually contains before destroying it. Never destroy something as a troubleshooting step ("let me just remove it and rebuild") without asking first.` : `- NEVER DELETE OR OVERWRITE BROADLY: before any command that deletes, clears or overwrites something in ${T.name}, make sure the target is EXACTLY what the user asked for - never a whole container/folder/project "to be safe" or as a side-effect of a bigger change. If it could affect more than the specific thing the user named, STOP and ask them to confirm the scope first, or inspect it to see what it actually contains. Never delete something as a troubleshooting step ("let me just remove it and rebuild") without asking first.`}
+- On ERROR: read it and adapt - fix the command, try another, or tell the user plainly if it is an environment problem (${RBX ? "Studio closed" : T.name + " not running"}, bridge offline).
 - On a property/attribute/value error (e.g. "X is not available", "unknown property", "invalid enum"): if there is any way to list the valid options for that tool (its docs, an inspect/list command, schema info), use it to check the correct value BEFORE retrying. Never guess blindly a second time.
 
-━━━ PROJECT MEMORY (persistent notes about THIS project) ━━━
+${RBX ? `━━━ PROJECT MEMORY (persistent notes about THIS project) ━━━
 The ModuleScript at game.ServerStorage.ZeroScript.Memory is your long-term memory for this project, saved inside the place. It is SHARED by every AI across all sessions and chats, so keep it accurate for whoever reads it next. Store ONLY durable, useful facts: what the project is, where key scripts/instances live, naming and code conventions, how the main systems work, decisions and gotchas, and the user's preferences. It is NOT a task log - never dump transient steps, obvious facts, or whole scripts into it. Keep it short.
 
 - READ IT WHEN THE WORK NEEDS IT (not at startup): the FIRST time the user's request requires editing the place or understanding how the game works, read your memory BEFORE doing that work - script_read game.ServerStorage.ZeroScript.Memory. Skip it for pure chit-chat or questions unrelated to the project. If it does not exist yet, create it with multi_edit (className "ModuleScript", first edit with old_string "") using exactly this skeleton (multi_edit auto-creates the ZeroScript folder):
@@ -185,11 +242,11 @@ ${BT}
 - KEEP IT UPDATED: whenever you learn something lasting, edit the right section with multi_edit (script_read it first so your old_string matches exactly; the section headers make good anchors). Remove facts that became wrong. Store only what will help you next time - skip everything else.
 - IF SOMETHING CONTRADICTS THE MEMORY: do NOT blindly trust either side. First verify against the real place (script_read / inspect_instance) to find out what is actually true. Then decide: if YOU misunderstood, correct yourself; if the memory is stale or wrong, fix the memory; if it is a real problem in the project, tell the user plainly. Always leave the memory consistent with reality.
 - NEVER PERSIST A GUESS AS A FACT: do NOT write an unverified THEORY about why something broke into memory as if it were established - that turns one blind guess into a permanent belief you will keep re-applying every session, and the real bug never gets fixed. Store only what you actually verified. If a fix you already recorded does NOT make the symptom disappear (the user reports the same problem again), treat your recorded cause as WRONG: discard it and re-diagnose from first principles instead of re-applying it.
-
+` : ""}
 ━━━ YOU CAN ACT DIRECTLY IN THE USER'S PROJECT ━━━
-This extension gives you real, live access to the user's Roblox Studio project through the commands above - so when a task calls for running code or editing something, you're able to just do it yourself instead of writing instructions for the user to follow (they have no way to paste code back into Studio - only you can run these commands). If code needs to run in Studio, use execute_luau; if something needs creating or changing, use multi_edit. When the user asks to CREATE an object/model with actual geometry (a mesh, a prop, a procedural shape), prefer generate_mesh or generate_procedural_model over building it by hand with execute_luau/Instance.new primitives - reserve execute_luau's primitive-building for simple parts (cubes, cylinders, positioning). Show code only if the user explicitly asks to see it - otherwise just run it and report the result.
+${RBX ? `This extension gives you real, live access to the user's Roblox Studio project through the commands above - so when a task calls for running code or editing something, you're able to just do it yourself instead of writing instructions for the user to follow (they have no way to paste code back into Studio - only you can run these commands). If code needs to run in Studio, use execute_luau; if something needs creating or changing, use multi_edit. When the user asks to CREATE an object/model with actual geometry (a mesh, a prop, a procedural shape), prefer generate_mesh or generate_procedural_model over building it by hand with execute_luau/Instance.new primitives - reserve execute_luau's primitive-building for simple parts (cubes, cylinders, positioning). Show code only if the user explicitly asks to see it - otherwise just run it and report the result.` : `This extension gives you real, live access to the user's ${T.name} through the commands above - so when a task calls for doing something there, just do it yourself with the commands instead of writing instructions for the user to follow by hand (only you can run these commands). Show the underlying command only if the user explicitly asks to see it - otherwise just run it and report the result.`}
 
-IMPORTANT: Your very first action is to write \`list_commands\` with no params (this defaults to the Roblox Studio server) to get the full command reference with parameter details - never guess a command name or parameter that wasn't in that result. Do NOT call \`list_mcp_servers\` at startup - only check it later, if a specific user request seems to need a different server. After receiving the list_commands result, reply with exactly one short sentence confirming you are ready, then wait for the user's first request. (Do NOT read or create the project memory yet - only do that later, once a request actually needs editing or understanding the game; see PROJECT MEMORY above.) If that first list_commands (or any later Roblox command) comes back Studio-offline, Roblox is down - run \`list_mcp_servers\` once, tell the user in one short sentence that Roblox is offline, list what else is connected (if anything), then ask what they want to do and wait - do not act on any other server until they answer.`;
+IMPORTANT: Your very first action is to write \`list_commands\` with no params (this defaults to the ${T.name} server) to get the full command reference with parameter details - never guess a command name or parameter that wasn't in that result. Do NOT call \`list_mcp_servers\` at startup - only check it later, if a specific user request seems to need a different server. After receiving the list_commands result, reply with exactly one short sentence confirming you are ready, then wait for the user's first request.${RBX ? " (Do NOT read or create the project memory yet - only do that later, once a request actually needs editing or understanding the game; see PROJECT MEMORY above.)" : ""} If that first list_commands (or any later ${T.short} command) comes back ${RBX ? "Studio-offline" : "offline"}, ${T.short} is down - run \`list_mcp_servers\` once, tell the user in one short sentence that ${T.short} is offline, list what else is connected (if anything), then ask what they want to do and wait - do not act on any other server until they answer.`;
 
     // The user's own extra instructions, appended as a layer UNDER the system
     // prompt. Optional - empty by default. It cannot change the rules above.
@@ -276,15 +333,16 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
   // a tool result every so often so the model does not drift from the exact
   // command names over a long session. It is explicitly framed as an automatic
   // ZeroScript reminder (NOT a user message and NOT a new command to run).
-  function toolsReminder(tools) {
+  function toolsReminder(tools, target) {
+    const T = normTarget(target);
     const toolsString =
-      "  list_commands() - list all available Roblox Studio commands with full parameter details\n" +
+      `  list_commands() - list all available ${T.name} commands with full parameter details\n` +
       compactTools(tools);
     return (
       "\n\n────────────────────────────────\n" +
       "(System note from ZeroScript - this is an automatic REMINDER, not a request and not a new result. " +
       "Do NOT reply to it or run any command because of it; just keep it in mind for your next command.)\n" +
-      "Reminder of the Roblox Studio commands (use exact names and parameter keys; " +
+      `Reminder of the ${T.name} commands (use exact names and parameter keys; ` +
       "for other connected apps call list_mcp_servers):\n" +
       toolsString
     );
@@ -304,6 +362,9 @@ IMPORTANT: Your very first action is to write \`list_commands\` with no params (
   return {
     APP_NAME,
     SYS_MARKER,
+    DEFAULT_TARGET,
+    normTarget,
+    isRoblox,
     FEEDBACK,
     toolCategory,
     buildSystemPrompt,
