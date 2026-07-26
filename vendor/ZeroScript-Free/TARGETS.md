@@ -102,3 +102,9 @@ Roblox, Luau or Studio.
   target, so they are untouched.
 - Changing `target.id` means the old primary becomes an ordinary addon; keep
   `id` in sync with the `mcpServers` key you actually want as primary.
+
+## Running without a PC
+
+The bridge and browser must be on the same device, but that device does not have
+to be a desktop. See `ANDROID.md` for running a **generic** target entirely on an
+Android phone via Termux. A Roblox target still requires Windows/macOS.
