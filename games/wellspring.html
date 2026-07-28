@@ -115,7 +115,12 @@ const ctx = canvas.getContext("2d", { alpha: false });
 let W = 0, H = 0, DPR = 1;
 
 function resize() {
-  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  // On a big window a DPR of 2 means pushing 4x the pixels, which is where
+  // most "it feels laggy" reports come from. Scale the cap down as the window
+  // grows so the shader-free 2D context keeps a comfortable fill budget.
+  const area = window.innerWidth * window.innerHeight;
+  const cap = area > 2200000 ? 1 : area > 1200000 ? 1.5 : 2;
+  DPR = Math.min(window.devicePixelRatio || 1, cap);
   W = window.innerWidth;
   H = window.innerHeight;
   canvas.width = Math.round(W * DPR);
@@ -274,9 +279,60 @@ const hideAll = () => [titleScreen, deadScreen, pauseScreen].forEach((e) => e.cl
 try { best = parseInt(localStorage.getItem("wellspring.best") || "0", 10) || 0; } catch (_) { best = 0; }
 
 // ---------- world generation ----------
+// ---------- cached paint: gradients and glow sprites ----------
+// Gradients and shadowBlur are the two most expensive things in a 2D context.
+// Both are rebuilt only when the viewport changes, and glows become pre-baked
+// sprites we can blit, instead of a live blur on every draw.
+let bgGrad = null, vigGrad = null;
+const glowCache = new Map();
+const pylonGrad = new Map();
+
+function makeGlow(color, radius) {
+  const key = color + "|" + radius;
+  let c = glowCache.get(key);
+  if (c) return c;
+  const size = Math.ceil(radius * 2) + 2;
+  const off = document.createElement("canvas");
+  off.width = off.height = size;
+  const o = off.getContext("2d");
+  const g = o.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, radius);
+  g.addColorStop(0, color);
+  g.addColorStop(0.35, color);
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  o.globalAlpha = 1;
+  o.fillStyle = g;
+  o.beginPath();
+  o.arc(size / 2, size / 2, radius, 0, TAU);
+  o.fill();
+  glowCache.set(key, off);
+  return off;
+}
+
+function blitGlow(color, radius, x, y, alpha) {
+  const img = makeGlow(color, radius);
+  const prev = ctx.globalAlpha;
+  ctx.globalAlpha = prev * (alpha === undefined ? 1 : alpha);
+  ctx.drawImage(img, x - img.width / 2, y - img.height / 2);
+  ctx.globalAlpha = prev;
+}
+
+function buildPaint() {
+  bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+  bgGrad.addColorStop(0, "#070c1c");
+  bgGrad.addColorStop(0.55, "#05070f");
+  bgGrad.addColorStop(1, "#0a0714");
+  vigGrad = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+  vigGrad.addColorStop(0, "rgba(0,0,0,0)");
+  vigGrad.addColorStop(1, "rgba(0,0,0,0.55)");
+  glowCache.clear();
+  pylonGrad.clear();
+}
+
 function makeStars() {
   stars = [];
-  const n = Math.round((W * H) / 5200);
+  // Density is capped: past a point more stars cost frame time without
+  // reading as any denser on screen.
+  const n = Math.min(220, Math.round((W * H) / 9000));
   for (let i = 0; i < n; i++) {
     stars.push({
       x: Math.random() * W * 1.4,
@@ -284,10 +340,27 @@ function makeStars() {
       z: rand(0.12, 1),
       r: rand(0.5, 1.7),
       tw: Math.random() * TAU,
+      bucket: 0,
     });
+  }
+  assignStarBuckets();
+}
+
+// Static brightness bucket per star. Twinkle is applied by cycling which
+// bucket a star sits in over time, so brightness still animates without
+// costing a state change per star.
+const STAR_BUCKETS = 6;
+function assignStarBuckets() {
+  const half = STAR_BUCKETS / 2;
+  for (const st of stars) {
+    const near = st.z > 0.72;
+    const lvl = clamp(Math.floor(st.z * half), 0, half - 1);
+    st.baseBucket = (near ? half : 0) + lvl;
+    st.bucket = st.baseBucket;
   }
 }
 makeStars();
+buildPaint();
 
 function difficulty() {
   // 0 -> 1 over roughly two minutes of survival
@@ -605,26 +678,45 @@ function updateFx(dt) {
   }
   if (particles.length > 900) particles.splice(0, particles.length - 900);
   particles = particles.filter((p) => p.life > 0);
-  for (const s of stars) s.tw += dt * 2;
+  // Twinkle: nudge a small random slice of stars between adjacent brightness
+  // buckets each frame. Visually equivalent to per-star alpha, far cheaper.
+  const half = STAR_BUCKETS / 2;
+  const n = stars.length;
+  if (n) {
+    const count = Math.max(1, n >> 4);
+    for (let i = 0; i < count; i++) {
+      const st = stars[(Math.random() * n) | 0];
+      const near = st.baseBucket >= half;
+      const lo = near ? half : 0;
+      const jitter = Math.random() < 0.5 ? -1 : 1;
+      st.bucket = clamp(st.baseBucket + jitter, lo, lo + half - 1);
+    }
+  }
 }
 
 // ---------- rendering ----------
 function drawBackground() {
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, "#070c1c");
-  g.addColorStop(0.55, "#05070f");
-  g.addColorStop(1, "#0a0714");
-  ctx.fillStyle = g;
+  ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, W, H);
 
-  // parallax starfield
-  for (const s of stars) {
-    const x = ((s.x - camX * s.z * 0.6) % (W * 1.4) + W * 1.4) % (W * 1.4);
-    if (x > W + 4) continue;
-    const a = 0.25 + 0.55 * s.z * (0.7 + 0.3 * Math.sin(s.tw));
-    ctx.globalAlpha = a;
-    ctx.fillStyle = s.z > 0.72 ? "#cfe6ff" : "#5f76b0";
-    ctx.fillRect(x, s.y, s.r, s.r);
+  // Parallax starfield, batched: stars are bucketed into a few alpha steps and
+  // two colours, so the whole field costs a handful of state changes instead
+  // of two per star.
+  const span = W * 1.4;
+  for (let bucket = 0; bucket < STAR_BUCKETS; bucket++) {
+    const near = bucket >= STAR_BUCKETS / 2;
+    const idx = bucket % (STAR_BUCKETS / 2);
+    ctx.globalAlpha = 0.25 + (idx + 0.5) * (0.72 / (STAR_BUCKETS / 2));
+    ctx.fillStyle = near ? "#cfe6ff" : "#5f76b0";
+    let any = false;
+    for (const st of stars) {
+      if (st.bucket !== bucket) continue;
+      const x = ((st.x - camX * st.z * 0.6) % span + span) % span;
+      if (x > W + 4) continue;
+      ctx.fillRect(x, st.y, st.r, st.r);
+      any = true;
+    }
+    if (!any) continue;
   }
   ctx.globalAlpha = 1;
 
@@ -645,23 +737,34 @@ function drawPylon(p) {
   const topH = gy - p.gapH / 2;
   const botY = gy + p.gapH / 2;
 
-  const body = ctx.createLinearGradient(x, 0, x + p.w, 0);
-  body.addColorStop(0, "#16224a");
-  body.addColorStop(0.5, "#243a75");
-  body.addColorStop(1, "#101a3a");
-
-  ctx.fillStyle = body;
-  if (topH > 0) ctx.fillRect(x, 0, p.w, topH);
-  if (botY < H) ctx.fillRect(x, botY, p.w, H - botY);
-
-  // glowing lips around the gap
+  // The body gradient is horizontal and the same for every pylon of a given
+  // width, so cache it once at the origin and translate the context so it
+  // lands on the pylon. Widths are random floats, so the key is rounded --
+  // otherwise the cache would grow without bound.
+  const wKey = Math.round(p.w);
+  let body = pylonGrad.get(wKey);
+  if (!body) {
+    body = ctx.createLinearGradient(0, 0, wKey, 0);
+    body.addColorStop(0, "#16224a");
+    body.addColorStop(0.5, "#243a75");
+    body.addColorStop(1, "#101a3a");
+    pylonGrad.set(wKey, body);
+  }
   ctx.save();
-  ctx.shadowColor = "rgba(86,240,224,0.9)";
-  ctx.shadowBlur = 18;
-  ctx.fillStyle = p.amp > 0 ? "#ff9ecb" : "#56f0e0";
+  ctx.translate(x, 0);   // gradient coords are user-space at fill time
+  ctx.fillStyle = body;
+  if (topH > 0) ctx.fillRect(0, 0, p.w, topH);
+  if (botY < H) ctx.fillRect(0, botY, p.w, H - botY);
+  ctx.restore();
+
+  // Glowing lips around the gap. Pre-baked sprite blit rather than a live
+  // shadowBlur, which is the single most expensive 2D canvas operation.
+  const lip = p.amp > 0 ? "#ff9ecb" : "#56f0e0";
+  if (topH > 0) blitGlow(lip, 22, x + p.w / 2, topH - 2, 0.55);
+  if (botY < H) blitGlow(lip, 22, x + p.w / 2, botY + 2, 0.55);
+  ctx.fillStyle = lip;
   if (topH > 0) ctx.fillRect(x - 2, topH - 4, p.w + 4, 4);
   if (botY < H) ctx.fillRect(x - 2, botY, p.w + 4, 4);
-  ctx.restore();
 
   // rivet detail
   ctx.fillStyle = "rgba(140,190,255,0.16)";
@@ -697,8 +800,7 @@ function drawMote(m) {
   if (x < -30 || x > W + 30) return;
   const pulse = 1 + Math.sin(m.phase) * 0.18;
   ctx.save();
-  ctx.shadowColor = "rgba(255,209,102,0.95)";
-  ctx.shadowBlur = 20;
+  blitGlow("#ffd166", 22, x, m.y, 0.7);
   ctx.fillStyle = "#ffd166";
   ctx.beginPath();
   ctx.arc(x, m.y, m.r * pulse, 0, TAU);
@@ -731,8 +833,7 @@ function drawWell() {
     ctx.stroke();
   }
   ctx.globalAlpha = 1;
-  ctx.shadowColor = col;
-  ctx.shadowBlur = 26;
+  blitGlow(col, 26, 0, 0, 0.85);
   ctx.fillStyle = col;
   ctx.beginPath();
   ctx.arc(0, 0, 6, 0, TAU);
@@ -765,8 +866,7 @@ function drawShip() {
   // engine glow scaled by speed
   const sp = Math.hypot(ship.vx, ship.vy);
   const glow = clamp(sp / CFG.maxSpeed, 0, 1);
-  ctx.shadowColor = "rgba(86,240,224,0.9)";
-  ctx.shadowBlur = 14 + glow * 26;
+  blitGlow("#56f0e0", 30, 0, 0, 0.30 + glow * 0.45);
 
   ctx.beginPath();
   ctx.moveTo(15, 0);
@@ -782,30 +882,58 @@ function drawShip() {
   ctx.restore();
 }
 
+// The trail used to be one stroke() per segment -- ~67 draw calls a frame, by
+// far the biggest cost in the renderer. It is now drawn as a few tapered
+// bands, each a single path, which looks the same and costs ~4 calls.
+const TRAIL_BANDS = 4;
 function drawTrail() {
+  const n = trail.length;
+  if (n < 2) return;
   ctx.save();
   ctx.lineCap = "round";
-  for (let i = 1; i < trail.length; i++) {
-    const a = trail[i - 1], b = trail[i];
-    if (a.life <= 0 || b.life <= 0) continue;
-    const t = i / trail.length;
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "#56f0e0";
+  for (let b = 0; b < TRAIL_BANDS; b++) {
+    const lo = Math.floor((b / TRAIL_BANDS) * (n - 1));
+    const hi = Math.floor(((b + 1) / TRAIL_BANDS) * (n - 1));
+    if (hi <= lo) continue;
+    const t = (b + 0.5) / TRAIL_BANDS;
     ctx.globalAlpha = t * 0.5;
-    ctx.strokeStyle = "#56f0e0";
     ctx.lineWidth = 1 + t * 5;
     ctx.beginPath();
-    ctx.moveTo(a.x - camX, a.y);
-    ctx.lineTo(b.x - camX, b.y);
+    let started = false;
+    for (let i = lo; i <= hi; i++) {
+      const pt = trail[i];
+      if (pt.life <= 0) { started = false; continue; }
+      const x = pt.x - camX, y = pt.y;
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    }
     ctx.stroke();
   }
   ctx.restore();
 }
 
+// Particles are grouped by colour and quantised alpha so a burst of 150 costs
+// a few state changes rather than two per particle.
+const PARTICLE_ALPHA_STEPS = 4;
+const particleBatch = new Map();
 function drawParticles() {
+  if (!particles.length) return;
+  particleBatch.clear();
   for (const p of particles) {
     const a = clamp(p.life / p.max, 0, 1);
-    ctx.globalAlpha = a;
-    ctx.fillStyle = p.color;
-    ctx.fillRect(p.x - camX * 0 - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    const step = Math.max(1, Math.round(a * PARTICLE_ALPHA_STEPS));
+    const key = p.color + "|" + step;
+    let list = particleBatch.get(key);
+    if (!list) { list = []; particleBatch.set(key, list); }
+    list.push(p);
+  }
+  for (const [key, list] of particleBatch) {
+    const bar = key.indexOf("|");
+    ctx.fillStyle = key.slice(0, bar);
+    ctx.globalAlpha = (+key.slice(bar + 1)) / PARTICLE_ALPHA_STEPS;
+    for (const p of list) ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
   }
   ctx.globalAlpha = 1;
 }
@@ -845,10 +973,7 @@ function drawHUD() {
   const frac = charge / CFG.charge.max;
   const col = frac > 0.35 ? "#ffd166" : "#ff5fa2";
   ctx.fillStyle = col;
-  ctx.shadowColor = col;
-  ctx.shadowBlur = 12;
   ctx.fillRect(bx, by, bw * frac, bh);
-  ctx.shadowBlur = 0;
   ctx.font = "600 11px ui-monospace, Menlo, Consolas, monospace";
   ctx.fillStyle = "#8b9bc4";
   ctx.textAlign = "right";
@@ -882,10 +1007,7 @@ function render() {
   ctx.restore();
 
   // vignette
-  const v = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
-  v.addColorStop(0, "rgba(0,0,0,0)");
-  v.addColorStop(1, "rgba(0,0,0,0.55)");
-  ctx.fillStyle = v;
+  ctx.fillStyle = vigGrad;
   ctx.fillRect(0, 0, W, H);
 
   if (flash > 0.01) {
@@ -954,6 +1076,7 @@ requestAnimationFrame(frame);
 // their gaps off the new screen, or motes stranded outside the play area.
 window.addEventListener("resize", () => {
   makeStars();
+  buildPaint();
   const margin = 46;
   for (const p of pylons) {
     p.gapH = Math.min(p.gapH, Math.max(CFG.shipR * 6, H - margin * 2));
