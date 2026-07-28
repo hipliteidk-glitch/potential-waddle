@@ -57,6 +57,21 @@ Actions tab.
 Pages on a **private** repo requires a paid GitHub plan. This repo is
 currently private, so either make it public or use one of the options below.
 
+### PageDrop (fastest — one command, no signup)
+
+[PageDrop](https://pagedrop.io) hosts a single self-contained HTML file, which
+is exactly what this game is. No account, no API key, no build step:
+
+```bash
+./deploy/pagedrop.sh                 # 3-day link
+./deploy/pagedrop.sh -p wellspring   # ask for wellspring.pagedrop.io
+./deploy/pagedrop.sh -w hunter2      # password-protect it
+```
+
+It prints the live URL. PageDrop's API only offers short lifetimes
+(`1h`, `1d`, `3d`, `once` via `-t`), so treat it as a share link rather than a
+permanent home — for that use Pages, Netlify or Vercel.
+
 ### Anywhere else
 
 Nothing needs building, so any of these work as-is:
