@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WELLSPRING</title>
+<meta name="description" content="A single-file browser arcade game about flying a ship you cannot steer, by bending the gravity around it." />
+<meta property="og:title" content="WELLSPRING" />
+<meta property="og:description" content="You never steer the ship. You bend the space around it." />
+<meta property="og:type" content="website" />
+<style>
+  :root { --cyan:#56f0e0; --magenta:#ff5fa2; --gold:#ffd166; --dim:#8b9bc4; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; min-height:100%; }
+  body {
+    background:
+      radial-gradient(120% 90% at 50% 0%, #0b1430 0%, #05070f 55%, #05070f 100%);
+    color:#eaf2ff;
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    display:flex; align-items:center; justify-content:center;
+    padding:32px 20px; min-height:100vh;
+  }
+  .wrap { max-width:620px; width:100%; text-align:center; }
+  h1 {
+    font-size:clamp(40px,11vw,84px); margin:0; letter-spacing:.2em; font-weight:800;
+    text-shadow:0 0 26px rgba(86,240,224,.6), 0 0 60px rgba(255,95,162,.3);
+  }
+  .tag { color:var(--cyan); letter-spacing:.28em; font-size:clamp(10px,2.6vw,13px); margin:14px 0 30px; }
+  .play {
+    display:inline-block; padding:16px 44px; border:1px solid var(--cyan); border-radius:10px;
+    color:#05070f; background:var(--cyan); text-decoration:none; font-weight:700;
+    letter-spacing:.2em; font-size:clamp(13px,3vw,15px);
+    transition:transform .12s ease, box-shadow .12s ease;
+    box-shadow:0 0 30px rgba(86,240,224,.35);
+  }
+  .play:hover { transform:translateY(-2px); box-shadow:0 0 44px rgba(86,240,224,.6); }
+  .blurb { color:var(--dim); font-size:clamp(12px,2.7vw,14px); line-height:1.9; margin:34px auto 0; max-width:30em; }
+  .blurb b { color:#eaf2ff; font-weight:600; }
+  .pull { color:var(--cyan); } .push { color:var(--magenta); } .chg { color:var(--gold); }
+  table { margin:26px auto 0; border-collapse:collapse; font-size:clamp(11px,2.5vw,13px); }
+  td { padding:7px 14px; color:var(--dim); border-top:1px solid #16203f; text-align:left; }
+  td:first-child { color:#cfe0ff; white-space:nowrap; }
+  .foot { margin-top:34px; color:#4d5c80; font-size:11px; letter-spacing:.16em; }
+  .foot a { color:#6b7ea8; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>WELLSPRING</h1>
+    <div class="tag">YOU DO NOT FLY THE SHIP · YOU BEND THE SPACE</div>
+
+    <a class="play" href="games/wellspring.html">PLAY</a>
+
+    <p class="blurb">
+      Your ship has no engine you can steer. It drifts on a current that only
+      gets faster. The one thing you control is space itself — hold to tear
+      open a <b class="pull">gravity well</b> and the ship falls toward it;
+      invert it to <b class="push">shove the ship away</b>.
+      Wells burn <b class="chg">charge</b>, so learn to pulse them.
+      Aiming means leading your own momentum.
+    </p>
+
+    <table>
+      <tr><td>Hold / tap</td><td>open an attracting well</td></tr>
+      <tr><td>Right-click · Shift · 2 fingers</td><td>invert it (push away)</td></tr>
+      <tr><td>Space</td><td>start / restart</td></tr>
+      <tr><td>P · Esc</td><td>pause</td></tr>
+      <tr><td>M</td><td>mute</td></tr>
+    </table>
+
+    <div class="foot">
+      ONE HTML FILE · NO DEPENDENCIES · NO TRACKING ·
+      <a href="https://github.com/hipliteidk-glitch/potential-waddle">SOURCE</a>
+    </div>
+  </div>
+</body>
+</html>

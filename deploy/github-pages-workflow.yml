@@ -1,0 +1,63 @@
+name: Deploy WELLSPRING to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "games/**"
+      - "index.html"
+      - ".github/workflows/deploy-pages.yml"
+  # Lets you deploy any branch by hand from the Actions tab.
+  workflow_dispatch:
+
+# Least privilege: only what Pages needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never run two deploys at once; let an in-flight one finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble static site
+        run: |
+          set -euo pipefail
+          mkdir -p _site/games
+          cp games/wellspring.html _site/games/wellspring.html
+          cp index.html _site/index.html
+          # Pages runs content through Jekyll by default, which strips files
+          # and folders beginning with an underscore. The game needs none of
+          # that processing.
+          touch _site/.nojekyll
+
+      - name: Sanity-check the build
+        run: |
+          set -euo pipefail
+          test -s _site/index.html
+          test -s _site/games/wellspring.html
+          # The game must stay dependency-free: any external fetch would break
+          # it on a static host or leak a request off-site.
+          if grep -qE 'https?://|<script src=|<link rel="stylesheet"' _site/games/wellspring.html; then
+            echo "::error::wellspring.html gained an external reference; it must stay self-contained"
+            exit 1
+          fi
+          node --check <(sed -n '/<script>/,/<\/script>/p' _site/games/wellspring.html \
+            | sed '1d;$d') && echo "game script parses"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
