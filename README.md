@@ -24,3 +24,10 @@ python doraemon_recap_generator.py --bgm bgm.mp3
 ```
 
 Intermediate narration and slides are written to `recap_assets/`; rendered media is intentionally ignored by Git.
+
+## Games
+
+- [`games/wellspring.html`](games/wellspring.html) — **WELLSPRING**, a single-file
+  arcade game about flying a ship you cannot steer by bending the gravity around
+  it. No build step or dependencies; just open the file. See
+  [`games/README.md`](games/README.md).
