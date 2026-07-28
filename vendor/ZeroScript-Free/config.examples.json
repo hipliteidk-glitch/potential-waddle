@@ -17,7 +17,6 @@
     "                  'state_tool' + 'not_ready_markers' additionally detect a",
     "                  target that is attached but not usable."
   ],
-
   "example_blender": {
     "target": {
       "id": "blender",
@@ -27,10 +26,14 @@
       "offline_hint": "Open Blender and make sure its MCP add-on is enabled."
     },
     "mcpServers": {
-      "blender": { "command": "uvx", "args": ["blender-mcp"] }
+      "blender": {
+        "command": "uvx",
+        "args": [
+          "blender-mcp"
+        ]
+      }
     }
   },
-
   "example_filesystem": {
     "target": {
       "id": "files",
@@ -42,11 +45,14 @@
     "mcpServers": {
       "files": {
         "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/your/project"]
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-filesystem",
+          "/path/to/your/project"
+        ]
       }
     }
   },
-
   "example_with_probe": {
     "target": {
       "id": "notebook",
@@ -57,14 +63,21 @@
       "probe": {
         "tool": "notebook_status",
         "state_tool": "notebook_status",
-        "not_ready_markers": ["not ready", "no document open"]
+        "not_ready_markers": [
+          "not ready",
+          "no document open"
+        ]
       }
     },
     "mcpServers": {
-      "notebook": { "command": "python", "args": ["my_notebook_mcp.py"] }
+      "notebook": {
+        "command": "python",
+        "args": [
+          "my_notebook_mcp.py"
+        ]
+      }
     }
   },
-
   "example_roblox_explicit": {
     "target": {
       "id": "roblox",
@@ -73,7 +86,67 @@
       "short": "Roblox"
     },
     "mcpServers": {
-      "roblox": { "command": "launch_studio_mcp.py", "args": [] }
+      "roblox": {
+        "command": "launch_studio_mcp.py",
+        "args": []
+      }
+    }
+  },
+  "example_no_mcp_shell": {
+    "_note": "No MCP at all: tools are plain commands. See NO-MCP.md.",
+    "target": {
+      "id": "shell",
+      "kind": "generic",
+      "name": "my computer",
+      "short": "Shell",
+      "offline_hint": "Check that the commands in config.json exist on this machine."
+    },
+    "servers": {
+      "shell": {
+        "type": "script",
+        "tools": [
+          {
+            "name": "list_files",
+            "description": "List the files in a folder.",
+            "params": {
+              "path": {
+                "description": "folder to list",
+                "required": true
+              }
+            },
+            "run": [
+              "ls",
+              "-la",
+              "{path}"
+            ]
+          },
+          {
+            "name": "read_file",
+            "description": "Show the contents of a file.",
+            "params": {
+              "path": "file to read"
+            },
+            "run": [
+              "cat",
+              "{path}"
+            ]
+          },
+          {
+            "name": "search_text",
+            "description": "Search for a pattern in a folder.",
+            "params": {
+              "pattern": "text to find",
+              "path": "folder to search"
+            },
+            "run": [
+              "grep",
+              "-rn",
+              "{pattern}",
+              "{path}"
+            ]
+          }
+        ]
+      }
     }
   }
 }

@@ -108,3 +108,8 @@ Roblox, Luau or Studio.
 The bridge and browser must be on the same device, but that device does not have
 to be a desktop. See `ANDROID.md` for running a **generic** target entirely on an
 Android phone via Termux. A Roblox target still requires Windows/macOS.
+
+## Not using MCP at all
+
+You do not even need an MCP server: tools can be declared as plain commands in
+`config.json`. See `NO-MCP.md`.

@@ -29,6 +29,16 @@ import threading
 import time
 
 try:
+    # Plain-command ("no MCP") tool support. Optional: a partial install that
+    # only has bridge.py still boots, it just cannot use script servers.
+    from script_server import ScriptClient, looks_like_script_spec
+except Exception:  # only when script_server.py is missing
+    ScriptClient = None
+
+    def looks_like_script_spec(spec):
+        return False
+
+try:
     # Sibling script (same folder as bridge.py, which Python puts on sys.path
     # automatically) - reused here purely to detect a Studio version bump
     # (see _current_studio_exe below), not to launch anything.
@@ -1187,11 +1197,28 @@ class MCPManager:
         self.index_lock = threading.Lock()
 
     def load_config(self):
-        servers = _read_config().get("mcpServers", {}) or {}
+        cfg = _read_config()
+        # "servers" is the newer, protocol-neutral key (an entry may be an MCP
+        # server OR a plain-command script server). "mcpServers" stays supported
+        # so every existing config.json keeps working untouched.
+        servers = dict(cfg.get("mcpServers") or {})
+        servers.update(cfg.get("servers") or {})
+        n_script = 0
         for sid, spec in servers.items():
-            self.clients[sid] = MCPClient(
-                sid, spec.get("command"), spec.get("args"), spec.get("env"))
-        log(f"configured {len(self.clients)} MCP server(s): {', '.join(self.clients) or '(none)'}", "cy")
+            if looks_like_script_spec(spec):
+                if ScriptClient is None:
+                    log(f"[{sid}] script server ignored: script_server.py is missing.", "rd")
+                    continue
+                self.clients[sid] = ScriptClient(sid, spec)
+                n_script += 1
+            else:
+                self.clients[sid] = MCPClient(
+                    sid, spec.get("command"), spec.get("args"), spec.get("env"))
+        kinds = f"{len(self.clients) - n_script} MCP"
+        if n_script:
+            kinds += f" + {n_script} script"
+        log(f"configured {len(self.clients)} server(s) ({kinds}): "
+            f"{', '.join(self.clients) or '(none)'}", "cy")
 
     def start_all(self):
         # Launch every configured server IN PARALLEL, not one after another.
@@ -1327,6 +1354,10 @@ def _probe_tool_text(tool):
     if entry is None:
         return None
     holder, real_name = entry
+    # A script server (no MCP) has no JSON-RPC layer - it exposes its own
+    # best-effort probe instead. Delegate rather than reaching for _request.
+    if hasattr(holder, "probe_text"):
+        return holder.probe_text(real_name)
     # Never queue behind a long-running tool call (the probe is best-effort).
     if not holder.call_lock.acquire(blocking=False):
         return None
