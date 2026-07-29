@@ -1,5 +1,37 @@
 # Running ZeroScript on an Android phone (no PC)
 
+## Quick start (copy-paste)
+
+In Termux:
+
+```bash
+pkg update && pkg install -y python git
+git clone https://github.com/hipliteidk-glitch/potential-waddle
+cd potential-waddle/vendor/ZeroScript-Free
+cp config.termux.json config.json
+bash start-termux.sh
+```
+
+That installs the one dependency, creates a `~/zs` workspace, holds a wake lock
+so Android does not suspend the bridge, and starts it. You should see:
+
+```
+  ZeroScript Bridge v1.4.9  - my phone - ws://127.0.0.1:17613
+
+configured 1 server(s) (0 MCP + 1 script): phone
+ready 7 tools available - my phone connected
+```
+
+Leave that session running, then install the extension (step 4 below) and open
+an AI chat. The AI gets seven tools over your `~/zs` folder: `list_files`,
+`read_file`, `write_file`, `append_file`, `search_text`, `delete_file` and
+`phone_status`.
+
+This uses **no MCP and no Roblox** - the tools are plain commands (see
+`NO-MCP.md`). To change what the AI can do, edit the `tools` list in
+`config.json`. To use a different folder:
+`ZS_WORKSPACE=~/notes bash start-termux.sh`.
+
 ZeroScript has no cloud mode. The extension only ever connects to
 `ws://127.0.0.1:<port>` (hardcoded in `background.js`; the manifest only grants
 `127.0.0.1` host permissions), so **the bridge and the browser must run on the

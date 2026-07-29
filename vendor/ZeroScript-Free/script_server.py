@@ -98,6 +98,8 @@ class ScriptTool:
         else:
             raise ValueError(f"tool '{self.name}': missing a non-empty \"run\"")
         self.shell = bool(spec.get("shell"))
+        # cwd may reference an env var, e.g. "{ZS_WORKSPACE}" or "$HOME/zs", so
+        # one config file works across machines (and Termux's odd home path).
         self.cwd = spec.get("cwd")
         self.env = spec.get("env") or {}
         self.timeout = float(spec.get("timeout") or DEFAULT_TIMEOUT)
@@ -120,8 +122,37 @@ class ScriptTool:
         return {"name": self.name, "description": self.description,
                 "inputSchema": schema}
 
+    def resolved_cwd(self):
+        """Expand env vars / ~ in cwd. {NAME} is read from the environment too,
+        so a config can say {ZS_WORKSPACE} without hardcoding a phone path."""
+        if not self.cwd:
+            return None
+        path = str(self.cwd)
+        for key, val in os.environ.items():
+            path = path.replace("{" + key + "}", val)
+        path = os.path.expanduser(os.path.expandvars(path))
+        # An unresolved {PLACEHOLDER} means the variable is not set; fall back to
+        # the process cwd rather than trying to chdir into a literal "{X}".
+        if "{" in path and "}" in path:
+            return None
+        return path or None
+
+    def _defaults(self):
+        """Per-parameter "default" values from the schema, applied when the model
+        omits an optional argument. Without this, `grep {pattern} {path}` with no
+        path would drop the argument and grep would read stdin forever."""
+        out = {}
+        for key, meta in (self.params or {}).items():
+            if isinstance(meta, dict) and meta.get("default") is not None:
+                out[key] = meta["default"]
+        return out
+
     def build_argv(self, args: dict):
         used = set()
+        merged = dict(self._defaults())
+        merged.update({k: v for k, v in (args or {}).items()
+                       if v is not None and v != ""})
+        args = merged
         if self.shell:
             cmd = self.run
             if isinstance(cmd, list):
@@ -145,8 +176,12 @@ class ScriptTool:
         env.update({str(k): str(v) for k, v in self.env.items()})
         try:
             res = subprocess.run(
-                argv, shell=self.shell, cwd=self.cwd or None, env=env,
+                argv, shell=self.shell, cwd=self.resolved_cwd(), env=env,
                 capture_output=True, text=True,
+                # Detach stdin. With no terminal attached, anything that reads
+                # stdin (an interactive prompt, `grep` with no file operand)
+                # would hang until the timeout instead of returning.
+                stdin=subprocess.DEVNULL,
                 timeout=float(timeout or self.timeout), errors="replace")
         except subprocess.TimeoutExpired:
             raise TimeoutError(
