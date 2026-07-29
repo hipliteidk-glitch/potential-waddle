@@ -1,6 +1,28 @@
 # Running ZeroScript on an Android phone (no PC)
 
-## Quick start (copy-paste)
+## Quick start (ONE command)
+
+First press **Ctrl-C** in Termux to stop anything already running. Then paste
+this single line and press Enter:
+
+```bash
+cd ~ && rm -rf zs-app && pkg install -y python git && git clone -b arena/019f97f5-potential-waddle https://github.com/hipliteidk-glitch/potential-waddle zs-app && cd zs-app/vendor/ZeroScript-Free && bash fix-termux.sh && bash start-termux.sh
+```
+
+It downloads the right version, writes a phone config, and starts the bridge.
+Because it is one line, it stops at the first failure instead of continuing
+with a half-finished setup.
+
+To start it again later:
+
+```bash
+cd ~/zs-app/vendor/ZeroScript-Free && bash start-termux.sh
+```
+
+If you still see `[roblox]` after this, the command did not finish - scroll up
+to the FIRST red error and send me that line.
+
+## Step by step
 
 In Termux:
 
