@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -61,17 +62,36 @@ def _substitute(token: str, args: dict, used: set):
             and token.count(_PLACEHOLDER_OPEN) == 1):
         key = token[1:-1]
         used.add(key)
-        val = args.get(key, "")
-        if isinstance(val, list):
-            return [str(v) for v in val]
-        return [str(val)]
-    # Inline placeholders inside a bigger token, e.g. "--path={path}".
+        if key in args:
+            val = args[key]
+            if isinstance(val, list):
+                return [str(v) for v in val]
+            return [str(val)]
+        # Not a tool parameter: fall back to the ENVIRONMENT, so a config can
+        # reference {ZS_APP_DIR} / {HOME} to locate a helper script without
+        # hardcoding a machine-specific path. Env values are set by the user
+        # who started the bridge, never by the model, so this adds no
+        # model-controlled input. Unknown names become "" as before.
+        if key in os.environ:
+            return [os.environ[key]]
+        return [""]
+    # Inline placeholders inside a bigger token, e.g. "--path={path}" or
+    # "{ZS_APP_DIR}/helper.sh".
     out = token
     for key, val in args.items():
         needle = _PLACEHOLDER_OPEN + key + _PLACEHOLDER_CLOSE
         if needle in out:
             used.add(key)
             out = out.replace(needle, "" if val is None else str(val))
+    # Any placeholder still unfilled may name an environment variable (same
+    # rationale as the whole-token case: env is set by whoever launched the
+    # bridge, never by the model). Only substitute names that actually exist,
+    # so an unknown {foo} stays visible instead of silently becoming "".
+    if _PLACEHOLDER_OPEN in out:
+        for m in set(re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", out)):
+            if m in os.environ:
+                out = out.replace(_PLACEHOLDER_OPEN + m + _PLACEHOLDER_CLOSE,
+                                  os.environ[m])
     return [out]
 
 

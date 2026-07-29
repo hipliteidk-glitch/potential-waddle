@@ -103,6 +103,9 @@ PORT = int(os.environ.get("ZS_BRIDGE_PORT") or _PAAS_PORT or "17613")
 def _is_loopback(host):
     return host in ("127.0.0.1", "::1", "localhost")
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Exposed to script tools as {ZS_APP_DIR} so a config can point at a helper
+# shipped next to bridge.py (e.g. railway-login.sh) without hardcoding a path.
+os.environ.setdefault("ZS_APP_DIR", HERE)
 CONFIG_PATH = os.path.join(HERE, "config.json")
 
 # ── TARGET PROFILE ────────────────────────────────────────────────────────
