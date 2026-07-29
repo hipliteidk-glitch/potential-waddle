@@ -6,11 +6,18 @@ In Termux:
 
 ```bash
 pkg update && pkg install -y python git
-git clone https://github.com/hipliteidk-glitch/potential-waddle
+git clone -b arena/019f97f5-potential-waddle https://github.com/hipliteidk-glitch/potential-waddle
 cd potential-waddle/vendor/ZeroScript-Free
-cp config.termux.json config.json
+bash fix-termux.sh
 bash start-termux.sh
 ```
+
+> **The `-b arena/019f97f5-potential-waddle` is required.** Without it you get
+> the `main` branch, which does not contain ZeroScript at all - there is no
+> `vendor/` folder, so the `cd` fails and nothing else runs.
+>
+> Sanity check after the `cd`: `ls script_server.py` should print the filename.
+> If it says *No such file*, you are on the wrong branch or in the wrong folder.
 
 That installs the one dependency, creates a `~/zs` workspace, holds a wake lock
 so Android does not suspend the bridge, and starts it. You should see:
@@ -103,7 +110,7 @@ Use `pkg install python-pip` if pip needs updating.
 
 ```bash
 cd ~
-git clone https://github.com/hipliteidk-glitch/potential-waddle
+git clone -b arena/019f97f5-potential-waddle https://github.com/hipliteidk-glitch/potential-waddle
 cd potential-waddle/vendor/ZeroScript-Free
 pip install websockets
 ```

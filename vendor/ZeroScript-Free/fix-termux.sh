@@ -32,7 +32,7 @@ if [ ! -f script_server.py ]; then
   warn ""
   warn "Get the version with phone support instead:"
   warn "  cd ~"
-  warn "  git clone https://github.com/hipliteidk-glitch/potential-waddle"
+  warn "  git clone -b arena/019f97f5-potential-waddle https://github.com/hipliteidk-glitch/potential-waddle"
   warn "  cd potential-waddle/vendor/ZeroScript-Free"
   warn "  bash fix-termux.sh"
   exit 1
