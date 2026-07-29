@@ -68,3 +68,51 @@ chrome.runtime.onMessage.addListener((msg) => {
 });
 refresh();
 setInterval(refresh, 2000);
+
+// ── Bridge endpoint panel ──────────────────────────────────────────────────
+// The bridge is normally local, but it can run elsewhere (a container or a
+// Railway deploy), which requires a token. Editing it here avoids asking
+// anyone to hand-edit background.js.
+const epPanel = document.getElementById("endpoint-panel");
+const epUrl = document.getElementById("ep-url");
+const epToken = document.getElementById("ep-token");
+const epWarn = document.getElementById("ep-warn");
+
+function showWarn(text) {
+  epWarn.textContent = text || "";
+  epWarn.style.display = text ? "" : "none";
+}
+
+document.getElementById("endpoint-toggle").addEventListener("click", () => {
+  const open = epPanel.style.display !== "none";
+  epPanel.style.display = open ? "none" : "";
+  if (!open) {
+    chrome.runtime.sendMessage({ type: "get-endpoint" }, (r) => {
+      if (!r || !r.ok) return;
+      epUrl.value = r.url || "";
+      // Never render the saved secret back into the DOM; just say it is set.
+      epToken.value = "";
+      epToken.placeholder = r.hasToken ? "token saved - type to replace" : "token (remote bridges only)";
+      showWarn(r.warning);
+    });
+  }
+});
+
+document.getElementById("ep-save").addEventListener("click", () => {
+  const payload = { type: "set-endpoint", url: epUrl.value };
+  // Empty box = keep the existing token, so saving a URL doesn't wipe it.
+  if (epToken.value.trim()) payload.token = epToken.value.trim();
+  chrome.runtime.sendMessage(payload, (r) => {
+    if (!r || !r.ok) { showWarn((r && r.error) || "could not save"); return; }
+    epToken.value = "";
+    showWarn(r.warning);
+    refresh();
+  });
+});
+
+document.getElementById("ep-reset").addEventListener("click", () => {
+  chrome.runtime.sendMessage(
+    { type: "set-endpoint", url: "ws://127.0.0.1:17613", token: "" }, (r) => {
+      if (r && r.ok) { epUrl.value = r.url; epToken.value = ""; showWarn(""); refresh(); }
+    });
+});

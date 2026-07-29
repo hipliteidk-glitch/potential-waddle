@@ -19,6 +19,7 @@
 #     Nothing ever hangs the agentic loop silently.
 # ──────────────────────────────────────────────────────────────────────────
 import asyncio
+import hmac
 import json
 import os
 import queue
@@ -27,6 +28,7 @@ import sys
 import textwrap
 import threading
 import time
+import urllib.parse
 
 try:
     # Plain-command ("no MCP") tool support. Optional: a partial install that
@@ -82,11 +84,24 @@ def _enable_ansi_colors():
         return False
 
 
-HOST = "127.0.0.1"
+# Bind address. Loopback by default: the bridge runs commands on this machine,
+# so it must NOT be reachable from the network unless the user opts in.
+# Set ZS_BRIDGE_HOST=0.0.0.0 to serve remotely (e.g. a Railway/container
+# deploy) - that REQUIRES ZS_BRIDGE_TOKEN, enforced in main().
+HOST = os.environ.get("ZS_BRIDGE_HOST", "127.0.0.1")
+# Shared secret for remote access. When set, every client must present it.
+# Off-loopback binds without one are refused rather than left open.
+AUTH_TOKEN = (os.environ.get("ZS_BRIDGE_TOKEN") or "").strip()
+# Railway and most PaaS inject the port to listen on as $PORT.
+_PAAS_PORT = os.environ.get("PORT")
 # Keep in sync with zeroscript-extension/manifest.json "version" - printed at
 # startup so a user's terminal output alone tells us which build they're on.
 BRIDGE_VERSION = "1.4.9"
-PORT = int(os.environ.get("ZS_BRIDGE_PORT", "17613"))
+PORT = int(os.environ.get("ZS_BRIDGE_PORT") or _PAAS_PORT or "17613")
+
+
+def _is_loopback(host):
+    return host in ("127.0.0.1", "::1", "localhost")
 HERE = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(HERE, "config.json")
 
@@ -1508,8 +1523,57 @@ async def broadcast_status():
             pass
 
 
+def _client_authorized(ws):
+    """True when this connection may use the bridge.
+
+    With no AUTH_TOKEN set the bridge is loopback-only (enforced at startup),
+    so anything that reached us is already local and allowed. When a token IS
+    set every client must present it, via either:
+      - the query string:  ws://host:port/?token=SECRET
+      - an Authorization: Bearer SECRET header
+    Compared with compare_digest so a wrong token cannot be recovered by
+    timing the rejection.
+    """
+    if not AUTH_TOKEN:
+        return True
+    supplied = ""
+    try:
+        # websockets >= 14 moved the handshake onto ws.request (ws.path and
+        # ws.request_headers were REMOVED). Support both so the bridge keeps
+        # working on old and new installs - reading only the new attribute
+        # silently yielded "" and rejected even a correct token.
+        req = getattr(ws, "request", None)
+        path = getattr(req, "path", None) or getattr(ws, "path", "") or ""
+        if "?" in path:
+            supplied = urllib.parse.parse_qs(path.split("?", 1)[1]).get("token", [""])[0]
+        if not supplied:
+            headers = getattr(req, "headers", None)
+            if headers is None:
+                headers = getattr(ws, "request_headers", None)
+            raw = ""
+            if headers is not None:
+                try:
+                    raw = headers.get("Authorization", "") or ""
+                except Exception:
+                    raw = ""
+            if raw.lower().startswith("bearer "):
+                supplied = raw[7:].strip()
+    except Exception:
+        return False
+    return hmac.compare_digest(supplied, AUTH_TOKEN)
+
+
 async def handler(ws):
     peer = getattr(ws, "remote_address", ("?",))[0]
+    if not _client_authorized(ws):
+        # Never say WHY (missing vs wrong) - that is free information to a
+        # scanner. Close with the standard policy-violation code.
+        log(f"REJECTED unauthenticated connection from {peer}", "yl")
+        try:
+            await ws.close(code=1008, reason="unauthorized")
+        except Exception:
+            pass
+        return
     clients.add(ws)
     log(f"extension connected  ({peer})  [{len(clients)} client(s)]", "gr")
     try:
@@ -2167,6 +2231,31 @@ async def main():
     # else falls through to the friendly bind-error below.
     if await asyncio.to_thread(_reclaim_bridge_port):
         await asyncio.sleep(0.6)  # let Windows release the socket before we bind
+
+    # ── REFUSE TO EXPOSE AN UNAUTHENTICATED BRIDGE ─────────────────────────
+    # The bridge executes tools on this machine. Binding it to a public
+    # interface without a token would hand that to anyone who finds the port,
+    # so this is a hard failure, never a warning.
+    if not _is_loopback(HOST) and not AUTH_TOKEN:
+        log(f"refusing to start: ZS_BRIDGE_HOST={HOST} exposes the bridge beyond "
+            f"this machine, but ZS_BRIDGE_TOKEN is not set.", "rd")
+        log("    The bridge RUNS COMMANDS - unauthenticated remote access would let "
+            "anyone who finds the port run them.", "rd")
+        action_banner([
+            "Set a long random token, then start again:",
+            "  ZS_BRIDGE_TOKEN=$(python -c \"import secrets;print(secrets.token_urlsafe(32))\")",
+            "Clients then connect to:  ws://<host>:<port>/?token=<that token>",
+            "Or bind locally instead:  ZS_BRIDGE_HOST=127.0.0.1",
+        ])
+        return
+    if AUTH_TOKEN and len(AUTH_TOKEN) < 16:
+        log("refusing to start: ZS_BRIDGE_TOKEN is shorter than 16 characters - "
+            "too weak to expose a command-executing service.", "rd")
+        return
+    if not _is_loopback(HOST):
+        log(f"REMOTE MODE: listening on {HOST} with token authentication required.", "yl")
+        log("    Anyone with the token can run this bridge's tools. Use TLS "
+            "(a wss:// reverse proxy) so it is not sent in clear text.", "yl")
 
     try:
         server_ctx = await websockets.serve(

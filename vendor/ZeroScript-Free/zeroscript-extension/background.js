@@ -8,7 +8,54 @@
 // even when the bridge is offline. The agentic loop must never hang waiting.
 
 const PORT = 17613;
-const URL = `ws://127.0.0.1:${PORT}`;
+const DEFAULT_URL = `ws://127.0.0.1:${PORT}`;
+
+// ── Bridge endpoint ────────────────────────────────────────────────────────
+// The bridge normally runs on this machine, but it can also be remote (a
+// container / Railway deploy), in which case it REQUIRES a token. Both are
+// stored in chrome.storage.local and edited from the popup; defaults keep the
+// classic loopback behaviour so nothing changes for existing users.
+let bridgeUrl = DEFAULT_URL;
+let bridgeToken = "";
+
+// A remote bridge is only safe over TLS - ws:// to anything but localhost sends
+// the token, and every command, in clear text. Surface that rather than fail
+// silently on a typo'd endpoint.
+function endpointWarning(u) {
+  try {
+    const p = new URL(u);
+    const local = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(p.hostname);
+    if (!local && p.protocol === "ws:") return "insecure: use wss:// for a remote bridge";
+    if (!local && !bridgeToken) return "a remote bridge needs a token";
+    return "";
+  } catch {
+    return "not a valid ws:// or wss:// URL";
+  }
+}
+
+// Full URL including the token, which the bridge reads from ?token=.
+function connectUrl() {
+  const base = bridgeUrl || DEFAULT_URL;
+  if (!bridgeToken) return base;
+  try {
+    const u = new URL(base);
+    u.searchParams.set("token", bridgeToken);
+    return u.toString();
+  } catch {
+    return base;
+  }
+}
+
+async function loadEndpoint() {
+  try {
+    const v = await chrome.storage.local.get(["zsBridgeUrl", "zsBridgeToken"]);
+    bridgeUrl = (v && v.zsBridgeUrl) || DEFAULT_URL;
+    bridgeToken = (v && v.zsBridgeToken) || "";
+  } catch {
+    bridgeUrl = DEFAULT_URL;
+    bridgeToken = "";
+  }
+}
 
 // Chat sites where a ZeroScript provider content script runs. Status pushes go
 // to every tab matching these. Add the new provider's URL pattern here (and in
@@ -69,7 +116,7 @@ function connect() {
   }
   clearTimeout(reconnectTimer);
   try {
-    ws = new WebSocket(URL);
+    ws = new WebSocket(connectUrl());
   } catch (e) {
     log("WebSocket ctor failed", e);
     scheduleReconnect();
@@ -348,10 +395,38 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         break;
       }
       case "reconnect":
+        await loadEndpoint();
         reconnectDelay = RECONNECT_MIN;
         connect();
         sendResponse({ ok: true });
         break;
+      case "get-endpoint":
+        await loadEndpoint();
+        sendResponse({
+          ok: true, url: bridgeUrl, hasToken: !!bridgeToken,
+          isDefault: bridgeUrl === DEFAULT_URL,
+          warning: endpointWarning(bridgeUrl),
+        });
+        break;
+      case "set-endpoint": {
+        const url = (msg.url || "").trim() || DEFAULT_URL;
+        try {
+          const p = new URL(url);
+          if (p.protocol !== "ws:" && p.protocol !== "wss:") throw new Error("bad scheme");
+        } catch {
+          sendResponse({ ok: false, error: "Enter a ws:// or wss:// URL." });
+          break;
+        }
+        // token: undefined = leave as-is, "" = clear it.
+        const token = msg.token === undefined ? bridgeToken : String(msg.token).trim();
+        await chrome.storage.local.set({ zsBridgeUrl: url, zsBridgeToken: token });
+        await loadEndpoint();
+        try { if (ws) ws.close(); } catch {}
+        reconnectDelay = RECONNECT_MIN;
+        connect();
+        sendResponse({ ok: true, url: bridgeUrl, warning: endpointWarning(bridgeUrl) });
+        break;
+      }
       default:
         sendResponse({ ok: false, error: "unknown message" });
     }
@@ -359,8 +434,28 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true; // async sendResponse
 });
 
-// Wake/keepalive hooks.
-chrome.runtime.onStartup.addListener(connect);
-chrome.runtime.onInstalled.addListener(connect);
+// Always read the saved endpoint BEFORE dialling, otherwise a configured remote
+// bridge would be ignored on every service-worker wake-up and we would silently
+// fall back to localhost.
+async function boot() {
+  await loadEndpoint();
+  connect();
+}
 
-connect();
+// Re-dial immediately when the endpoint changes in the popup, instead of
+// waiting for the next reconnect backoff with the stale URL.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (!changes.zsBridgeUrl && !changes.zsBridgeToken) return;
+  loadEndpoint().then(() => {
+    try { if (ws) ws.close(); } catch {}
+    reconnectDelay = RECONNECT_MIN;
+    connect();
+  });
+});
+
+// Wake/keepalive hooks.
+chrome.runtime.onStartup.addListener(boot);
+chrome.runtime.onInstalled.addListener(boot);
+
+boot();
