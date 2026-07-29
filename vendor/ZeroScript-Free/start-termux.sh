@@ -42,6 +42,18 @@ if grep -q '"launch_studio_mcp.py"' config.json 2>/dev/null; then
   warn "Continuing anyway - expect 'no StudioMCP.exe found'."
 fi
 
+# A config that launches an MCP server via npx/node needs Node installed. Say so
+# up front instead of letting the user watch a crash-restart loop.
+if grep -qE '"(npx|node)"' config.json 2>/dev/null && ! command -v node >/dev/null 2>&1; then
+  warn "config.json runs an MCP server with npx/node, but Node is not installed."
+  warn "Install it with:   pkg install -y nodejs"
+  warn "Continuing anyway - that server will fail to start until you do."
+fi
+if grep -q '"npx"' config.json 2>/dev/null; then
+  say "Note: the first npx launch downloads the MCP server and can take several"
+  say "      minutes on a phone. Later starts are fast."
+fi
+
 # ── 4. workspace ───────────────────────────────────────────────────────────
 mkdir -p "$ZS_WORKSPACE" || die "could not create workspace $ZS_WORKSPACE"
 if [ -z "$(ls -A "$ZS_WORKSPACE" 2>/dev/null)" ]; then

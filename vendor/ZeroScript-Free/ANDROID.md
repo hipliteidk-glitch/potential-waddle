@@ -32,6 +32,35 @@ This uses **no MCP and no Roblox** - the tools are plain commands (see
 `config.json`. To use a different folder:
 `ZS_WORKSPACE=~/notes bash start-termux.sh`.
 
+## If you want a real MCP server instead
+
+The quick start above uses plain commands, so nothing has to speak MCP. If you
+specifically want a **real MCP server**, that works in Termux too - it just
+needs Node:
+
+```bash
+pkg install -y nodejs
+cp config.termux-mcp.json config.json
+bash start-termux.sh
+```
+
+That runs the official filesystem MCP server over one folder. Edit the last
+argument in `config.json` to choose which folder. Expect:
+
+```
+configured 1 server(s) (1 MCP): files
+[files] MCP server up  (14 tools advertised)
+```
+
+Notes:
+
+- The **first** launch downloads the server with `npx` and can take several
+  minutes on a phone. Later launches are fast (npm caches it).
+- Any MCP server that runs on Android works - it must be pure Node or Python.
+  Desktop-app servers (Blender, Roblox Studio) do not.
+- You can use both at once: keep `mcpServers` for the MCP server and add a
+  `servers` block of script tools. The AI sees one merged command list.
+
 ZeroScript has no cloud mode. The extension only ever connects to
 `ws://127.0.0.1:<port>` (hardcoded in `background.js`; the manifest only grants
 `127.0.0.1` host permissions), so **the bridge and the browser must run on the
