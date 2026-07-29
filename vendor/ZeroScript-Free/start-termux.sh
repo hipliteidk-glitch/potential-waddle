@@ -16,6 +16,7 @@ cd "$HERE" || exit 1
 export ZS_WORKSPACE="${ZS_WORKSPACE:-$HOME/zs}"
 
 say() { printf '\033[96m[zs]\033[0m %s\n' "$*"; }
+ok() { printf '\033[92m[zs]\033[0m %s\n' "$*"; }
 warn() { printf '\033[93m[zs]\033[0m %s\n' "$*"; }
 die() { printf '\033[91m[zs]\033[0m %s\n' "$*"; exit 1; }
 
@@ -72,7 +73,59 @@ fi
 trap 'command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock' EXIT
 
 # ── 6. go ──────────────────────────────────────────────────────────────────
+# Two modes:
+#   (default)  foreground - blocks until Ctrl-C. Right for a normal Termux
+#              session, but it NEVER returns, so any non-interactive runner
+#              (a script, an automation, a chat tool running the command for
+#              you) just hangs and shows no output at all.
+#   -b|--bg    background - start it, wait for the boot line, print a short
+#              report and EXIT. Safe to run non-interactively.
+MODE="${1:-}"
+LOGFILE="${ZS_LOG:-$HERE/bridge.out}"
+
+if [ "$MODE" = "-b" ] || [ "$MODE" = "--bg" ] || [ "${ZS_BACKGROUND:-0}" = "1" ]; then
+  # Already running? Don't start a second one fighting for the port.
+  if pgrep -f "python .*bridge\.py" >/dev/null 2>&1; then
+    warn "A bridge is already running. Stop it first:  bash start-termux.sh --stop"
+    exit 1
+  fi
+  say "Starting the bridge in the BACKGROUND..."
+  : > "$LOGFILE"
+  nohup python bridge.py >> "$LOGFILE" 2>&1 &
+  BPID=$!
+  # Poll the log for the boot verdict instead of sleeping a fixed time.
+  for _ in $(seq 1 40); do
+    sleep 1
+    grep -qE "ready [0-9]+ tools|could not start|Traceback" "$LOGFILE" 2>/dev/null && break
+    kill -0 "$BPID" 2>/dev/null || break
+  done
+  echo
+  sed -e 's/\x1b\[[0-9;]*m//g' "$LOGFILE" | head -20
+  echo
+  if grep -q "ready .* tools" "$LOGFILE" 2>/dev/null; then
+    ok "Bridge is UP (pid $BPID). Log: $LOGFILE"
+    if grep -q "\[roblox\]" "$LOGFILE" 2>/dev/null; then
+      warn "...but it is running the ROBLOX config, which cannot work here."
+      warn "Run:  bash fix-termux.sh   then start it again."
+    fi
+  else
+    warn "The bridge did not report ready. Full log: $LOGFILE"
+  fi
+  say "Stop it with:  bash start-termux.sh --stop"
+  exit 0
+fi
+
+if [ "$MODE" = "--stop" ]; then
+  if pkill -f "python .*bridge\.py" 2>/dev/null; then
+    ok "Stopped the bridge."
+  else
+    say "No bridge was running."
+  fi
+  command -v termux-wake-unlock >/dev/null 2>&1 && termux-wake-unlock
+  exit 0
+fi
+
 say "Starting the bridge. Leave this session open, then load the extension."
-say "Press Ctrl-C to stop."
+say "Press Ctrl-C to stop.  (Non-interactive? use:  bash start-termux.sh -b )"
 echo
 exec python bridge.py

@@ -19,6 +19,19 @@ To start it again later:
 cd ~/zs-app/vendor/ZeroScript-Free && bash start-termux.sh
 ```
 
+### Running it non-interactively
+
+`start-termux.sh` normally runs in the foreground and blocks until Ctrl-C, so a
+script or automation running it never gets any output. Use `-b` to start it in
+the background: it waits for the boot line, prints a short report, then exits.
+
+```bash
+bash start-termux.sh -b        # start in the background and return
+bash start-termux.sh --stop    # stop it
+```
+
+The log is written to `bridge.out` next to the script.
+
 If you still see `[roblox]` after this, the command did not finish - scroll up
 to the FIRST red error and send me that line.
 
