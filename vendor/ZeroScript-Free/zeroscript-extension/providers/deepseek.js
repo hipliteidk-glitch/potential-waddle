@@ -77,6 +77,7 @@ const ZSProvider = (() => {
     continueBtn: /^(continue|continuer|继续(生成)?|fortfahren|continuar|seguir|続行)$/i,
     stopped: /(arrêté|arrété|stopped|已停止|停止生成|已暂停)/i,
     expertMode: /expert|专家|专业/i,
+    instantMode: /instant|rapide|快速|标准/i,
     visionMode: /vision|视觉|图像|多模态/i,
     deepThink: /pensée profonde|pensee profonde|profonde|réflexion|reflexion|deep ?think|深度思考|r1/i,
     searchMode: /recherche intelligente|smart search|search|web|搜索/i,
@@ -286,6 +287,27 @@ const ZSProvider = (() => {
   }
   const findExpertRadio = () => findModeRadio("expert", RE.expertMode);
   const findVisionRadio = () => findModeRadio("vision", RE.visionMode);
+  // "Instant" is DeepSeek's non-thinking model; its tab carries
+  // data-model-type="default".
+  const findInstantRadio = () => findModeRadio("default", RE.instantMode);
+
+  // ── Preferred startup model ───────────────────────────────────────────────
+  // Expert by DEFAULT: the agent loop needs reliable, exactly-formatted command
+  // JSON over many turns, and the thinking model is markedly better at it. A
+  // user who wants speed (or is conserving quota) can opt into Instant; we then
+  // start in Instant instead of forcing Expert. Read once at load and kept in
+  // sync, so the choice survives a service-worker restart.
+  let preferInstant = false;
+  try {
+    chrome.storage.local.get("zsDeepseekModel", (r) => {
+      preferInstant = !!(r && r.zsDeepseekModel === "instant");
+    });
+    chrome.storage.onChanged.addListener((c, area) => {
+      if (area === "local" && c.zsDeepseekModel) {
+        preferInstant = c.zsDeepseekModel.newValue === "instant";
+      }
+    });
+  } catch {}
   const radioOn = (r) => !!r && r.getAttribute("aria-checked") === "true";
 
   // The user can CHOOSE the Vision tab; when they do we respect it (never force
@@ -343,9 +365,13 @@ const ZSProvider = (() => {
     const deepThink = findToggleBy(RE.deepThink);
     const search = findToggleBy(RE.searchMode);
     const vision = findVisionRadio();
+    const instant = findInstantRadio();
     return {
       expertFound: !!expert,
       expertOn: radioOn(expert),
+      instantFound: !!instant,
+      instantOn: radioOn(instant),
+      preferInstant,
       visionFound: !!vision,
       visionOn: radioOn(vision),
       deepThinkFound: !!deepThink,
@@ -370,9 +396,13 @@ const ZSProvider = (() => {
       // force Expert back) - that's the only way to feed DeepSeek images, and
       // supportsVision then flips true so screen_capture is allowed for that turn.
       if (!isVisionSelected()) {
-        const expert = findExpertRadio();
-        if (expert && expert.getAttribute("aria-checked") !== "true") {
-          try { expert.click(); } catch (e) { diag("mode_fallback", { reason, target: "expert", error: String(e && e.message || e) }); }
+        // Honour the user's preference; fall back to Expert if the Instant tab
+        // is not present (older UI), so we never fail to select SOME model.
+        const wantInstant = preferInstant && !!findInstantRadio();
+        const target = wantInstant ? findInstantRadio() : findExpertRadio();
+        const label = wantInstant ? "instant" : "expert";
+        if (target && target.getAttribute("aria-checked") !== "true") {
+          try { target.click(); } catch (e) { diag("mode_fallback", { reason, target: label, error: String(e && e.message || e) }); }
         }
       }
 
@@ -407,12 +437,13 @@ const ZSProvider = (() => {
       // Ready as soon as the agent model is on (Expert, OR Vision if the user
       // chose it) and Search is off. DeepThink is only required if a legacy toggle
       // is actually present (V4 has none).
-      if ((state.expertOn || state.visionOn) && state.searchOff && (state.deepThinkOn || !state.deepThinkFound)) break;
+      const modelOn = state.expertOn || state.visionOn || (preferInstant && state.instantOn);
+      if (modelOn && state.searchOff && (state.deepThinkOn || !state.deepThinkFound)) break;
       await sleep(120);
     }
     state = composerModeState();
     diag("mode_ready", { reason, ...state });
-    return { ...state, ready: state.expertOn || state.visionOn };
+    return { ...state, ready: state.expertOn || state.visionOn || (preferInstant && state.instantOn) };
   }
 
   // DeepSeek's footer button doubles as SEND (an upward arrow) and STOP (a

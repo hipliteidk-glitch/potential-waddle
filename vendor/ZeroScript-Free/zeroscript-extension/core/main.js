@@ -2332,6 +2332,21 @@
            <div class="zs-tip-sep">or tip in Robux</div>
            <div class="zs-rbx-grid">${passes}</div>
          </section>
+         ${P.displayName === "DeepSeek" ? `
+         <section class="zs-menu-sec">
+           <div class="zs-sec-label"><span>Model</span></div>
+           <div class="zs-menu-note">Expert is the thinking model and is far more reliable at writing exact commands over a long session. Instant is faster and lighter on quota, but more likely to malform a command or drift. Applies to the next new chat.</div>
+           <div class="zs-set-row">
+             <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+               <input type="radio" name="zs-model" id="zs-model-expert" value="expert" /> Expert (recommended)
+             </label>
+           </div>
+           <div class="zs-set-row">
+             <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+               <input type="radio" name="zs-model" id="zs-model-instant" value="instant" /> Instant (faster)
+             </label>
+           </div>
+         </section>` : ""}
          <section class="zs-menu-sec">
            <div class="zs-sec-label"><span>Custom prompt</span></div>
            <div class="zs-menu-note">Added below the system prompt on every new session. The built-in prompt can't be edited.</div>
@@ -2360,6 +2375,29 @@
         status.textContent = "Saved ✓";
         setTimeout(() => { status.textContent = ""; }, 1600);
       });
+
+      // Model choice (DeepSeek only). Saved immediately on change - it is a
+      // single setting and a separate Save button next to two radios reads as
+      // if the choice had not applied.
+      const mExpert = menuEl.querySelector("#zs-model-expert");
+      const mInstant = menuEl.querySelector("#zs-model-instant");
+      if (mExpert && mInstant) {
+        try {
+          chrome.storage.local.get("zsDeepseekModel", (r) => {
+            const instant = !!(r && r.zsDeepseekModel === "instant");
+            mInstant.checked = instant;
+            mExpert.checked = !instant;
+          });
+        } catch { mExpert.checked = true; }
+        const saveModel = (v) => {
+          try { chrome.storage.local.set({ zsDeepseekModel: v }); } catch {}
+          ui.toast(v === "instant"
+            ? "Instant selected - starts on the next new chat."
+            : "Expert selected - starts on the next new chat.");
+        };
+        mExpert.addEventListener("change", () => mExpert.checked && saveModel("expert"));
+        mInstant.addEventListener("change", () => mInstant.checked && saveModel("instant"));
+      }
       const mcpNameEl = menuEl.querySelector("#zs-mcp-name");
       const mcpUrlEl = menuEl.querySelector("#zs-mcp-url");
       const mcpStatus = menuEl.querySelector("#zs-mcp-status");
