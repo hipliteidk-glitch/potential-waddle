@@ -34,6 +34,14 @@ ok("a non-roblox kind is never treated as Roblox", !ZS.isRoblox({ id: "roblox", 
 
 // ── 2. no regression on the Roblox path ────────────────────────────────────
 const baseline = ZS.buildSystemPrompt({ siteName: "DeepSeek" });
+// NOTE: the Roblox prompt is intentionally no longer byte-identical to
+// upstream - exactly ONE line was added (the "NEVER invent a command" rule,
+// after a live session where the model claimed non-existent shell/screenshot
+// commands had "failed"). Nothing upstream was removed or reworded; these
+// tests assert the structure below instead of raw equality.
+ok("prompt forbids inventing commands", /NEVER invent a command/.test(baseline));
+ok("prompt still tells the model to run list_commands",
+   /list_commands/.test(baseline));
 ok("explicit roblox target === default prompt",
    ZS.buildSystemPrompt({ siteName: "DeepSeek", target: RBX }) === baseline);
 ok("string-form opts still supported", ZS.buildSystemPrompt("DeepSeek") === baseline);

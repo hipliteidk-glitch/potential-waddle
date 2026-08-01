@@ -123,6 +123,38 @@ bad = ScriptClient("b", {"type": "script", "tools": [{"run": ["ls"]}]})
 bad.start()
 ok("an invalid tool is reported via start_error", bool(bad.start_error))
 
+# ── image-returning tools ──────────────────────────────────────────────────
+import base64 as _b64
+_png = _b64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAFUlEQVR42mP8z8BQz0AEYBxV"
+    "SF+FABJADveWkH6oAAAAAElFTkSuQmCC")
+_img = os.path.join(tmp, "shot.png")
+with open(_img, "wb") as f:
+    f.write(_png)
+
+icl = ScriptClient("cam", {"type": "script", "tools": [
+    {"name": "shot", "returns": "image", "image_path": _img,
+     "run": ["echo", "captured"]},
+    {"name": "missing", "returns": "image",
+     "image_path": os.path.join(tmp, "nope.png"), "run": ["echo", "nothing"]},
+    {"name": "nopath", "returns": "image", "run": ["echo", "x"]},
+]})
+icl.start()
+res = icl.call_tool("shot", {}, 10)
+ok("an image tool returns one image", len(res["images"]) == 1, res)
+ok("image is base64 of the real file",
+   _b64.b64decode(res["images"][0]["data"]) == _png)
+ok("PNG is detected as image/png", res["images"][0]["mimeType"] == "image/png")
+ok("image tool keeps its stdout as text", "captured" in res["text"])
+ok("a declared image that was not produced errors clearly",
+   raises(lambda: icl.call_tool("missing", {}, 10), "did not produce an image"))
+ok("an image tool with no image_path errors clearly",
+   raises(lambda: icl.call_tool("nopath", {}, 10), "image_path"))
+
+# a text tool must still return the old shape
+ok("text tools still return an empty images list",
+   client.call_tool("read_file", {"path": note}, 10)["images"] == [])
+
 # ── MCPClient duck-type compatibility ──────────────────────────────────────
 for attr in ("id", "tools_cache", "call_lock", "start", "is_alive", "restart",
              "stop", "refresh_tools", "call_tool", "last_exit", "stderr_tail",

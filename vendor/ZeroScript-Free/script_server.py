@@ -36,6 +36,7 @@
 # ──────────────────────────────────────────────────────────────────────────
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -49,6 +50,9 @@ _PLACEHOLDER_CLOSE = "}"
 
 DEFAULT_TIMEOUT = 60
 MAX_OUTPUT = 60000  # chars of combined stdout/stderr handed back to the model
+# Cap on an image handed to the model. Base64 inflates by ~4/3 and the bridge's
+# WebSocket frame limit is 16MB, so keep well clear of it.
+MAX_IMAGE_BYTES = 4 * 1024 * 1024
 
 
 def _substitute(token: str, args: dict, used: set):
@@ -123,6 +127,14 @@ class ScriptTool:
         self.cwd = spec.get("cwd")
         self.env = spec.get("env") or {}
         self.timeout = float(spec.get("timeout") or DEFAULT_TIMEOUT)
+        # A tool may produce an IMAGE rather than text. "returns": "image" means
+        # the command writes an image file and prints nothing useful; the file
+        # is read, base64-encoded and handed back in the MCP image shape so the
+        # extension can attach it to the chat exactly like a real MCP server's.
+        self.returns = str(spec.get("returns") or "text").lower()
+        # Where the image lands. Supports {placeholders} (params + env) and
+        # defaults to a temp file the tool is expected to write.
+        self.image_path = spec.get("image_path") or ""
 
     def schema(self):
         """The MCP-shaped tool descriptor the extension/model consumes."""
@@ -190,6 +202,22 @@ class ScriptTool:
             argv.pop()
         return argv, used
 
+    def _resolved_image_path(self, args: dict):
+        """Fill {placeholders} in image_path from the tool's args, then the
+        environment - same rules as an argv token, so a config can write
+        {ZS_APP_DIR}/shot.png or {path}."""
+        if not self.image_path:
+            return ""
+        out = str(self.image_path)
+        for key, val in (args or {}).items():
+            out = out.replace(_PLACEHOLDER_OPEN + key + _PLACEHOLDER_CLOSE,
+                              "" if val is None else str(val))
+        for m in set(re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", out)):
+            if m in os.environ:
+                out = out.replace(_PLACEHOLDER_OPEN + m + _PLACEHOLDER_CLOSE,
+                                  os.environ[m])
+        return os.path.expanduser(os.path.expandvars(out))
+
     def execute(self, args: dict, timeout=None):
         argv, _ = self.build_argv(args or {})
         env = dict(os.environ)
@@ -224,6 +252,36 @@ class ScriptTool:
         text = out
         if err:
             text = (text + "\n[stderr] " + err).strip()
+
+        if self.returns == "image":
+            path = self._resolved_image_path(args or {})
+            if not path:
+                raise RuntimeError(
+                    f"'{self.name}' is declared as returning an image but no "
+                    f"\"image_path\" was configured.")
+            if not os.path.isfile(path):
+                raise RuntimeError(
+                    f"'{self.name}' did not produce an image at {path}. "
+                    f"{text or 'The command printed no output.'}"[:MAX_OUTPUT])
+            try:
+                with open(path, "rb") as fh:
+                    raw = fh.read()
+            except Exception as e:
+                raise RuntimeError(f"'{self.name}' could not read its image: {e}")
+            if not raw:
+                raise RuntimeError(f"'{self.name}' produced an empty image file.")
+            if len(raw) > MAX_IMAGE_BYTES:
+                raise RuntimeError(
+                    f"'{self.name}' produced a {len(raw) // 1024}KB image, over the "
+                    f"{MAX_IMAGE_BYTES // 1024}KB limit. Capture a smaller area or "
+                    f"lower the resolution.")
+            mime = "image/png" if raw[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
+            return {
+                "text": text or f"(captured {len(raw) // 1024}KB {mime})",
+                "images": [{"data": base64.b64encode(raw).decode("ascii"),
+                            "mimeType": mime}],
+            }
+
         if not text:
             text = f"(ok, '{self.name}' produced no output)"
         return text[:MAX_OUTPUT]
@@ -305,8 +363,12 @@ class ScriptClient:
             tool = self.tools.get(name)
             if tool is None:
                 raise RuntimeError(f"unknown tool '{name}' on script server '{self.id}'")
-            text = tool.execute(arguments or {}, timeout=timeout)
-            return {"text": text, "images": []}
+            res = tool.execute(arguments or {}, timeout=timeout)
+            # execute() returns a plain string for text tools, or the full
+            # {"text","images"} dict for image tools.
+            if isinstance(res, dict):
+                return res
+            return {"text": res, "images": []}
 
     def probe_text(self, tool_name):
         """Best-effort probe used by the status layer. Never raises."""

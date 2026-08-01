@@ -9,7 +9,11 @@
     "point cwd at /data/data/com.termux/files/home/storage/shared.",
     "",
     "Every 'run' is an argv LIST executed WITHOUT a shell, so an argument can",
-    "never start a second command. See NO-MCP.md."
+    "never start a second command. See NO-MCP.md.",
+    "",
+    "screenshot: needs the Termux:API APP (F-Droid) plus `pkg install termux-api`.",
+    "The image is only useful if the model can SEE images - on DeepSeek that",
+    "means selecting the Vision tab before starting the agent."
   ],
   "target": {
     "id": "phone",
@@ -153,6 +157,19 @@
             "sh",
             "-c",
             "date; echo; df -h ."
+          ]
+        },
+        {
+          "name": "screenshot",
+          "description": "Take a screenshot of the phone screen and show it. Requires the Termux:API app plus 'pkg install termux-api'. Only works if the assistant can see images (DeepSeek Vision tab).",
+          "returns": "image",
+          "image_path": "{ZS_WORKSPACE}/.zs-screenshot.png",
+          "timeout": 45,
+          "cwd": "{ZS_WORKSPACE}",
+          "run": [
+            "sh",
+            "-c",
+            "command -v termux-screenshot >/dev/null 2>&1 || { echo 'termux-screenshot not found. Install the Termux:API app from F-Droid AND run: pkg install termux-api' >&2; exit 1; }; rm -f \"$ZS_WORKSPACE/.zs-screenshot.png\"; termux-screenshot \"$ZS_WORKSPACE/.zs-screenshot.png\" >/dev/null 2>&1; echo 'screen captured'"
           ]
         }
       ]

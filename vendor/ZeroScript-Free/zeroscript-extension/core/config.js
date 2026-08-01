@@ -103,9 +103,14 @@ const ZS = (() => {
       names.join(", ") +
       ". Start over and write only the first command you need.",
     unknownTool: (name, valid) =>
-      `ERROR: unknown command "${name}". It does not exist. Valid commands are: ` +
+      `ERROR: the command "${name}" DOES NOT EXIST. This is not a temporary ` +
+      `failure, not a timeout, and nothing on the user's machine is broken - ` +
+      `you invented a command that was never available. Do NOT retry it, do NOT ` +
+      `try variations of the name, and do NOT tell the user it "failed" or blame ` +
+      `any app for being closed. The COMPLETE list of commands you can use is: ` +
       valid.join(", ") +
-      ". Use an exact name and parameter keys from the system prompt.",
+      `. If none of them can do what was asked, say so plainly in one sentence ` +
+      `instead of guessing at another command name.`,
     // Kept as a STRING for the Roblox default (unchanged wording), with a
     // target-aware builder alongside it for any other target.
     studioOffline:
@@ -214,6 +219,7 @@ For example, to list every available command you would write ${BT}{"command": "l
 ${luauFormatBlock}
 RULES:
 - ONE command block per reply, inside a fenced code block. If you need several, do them one at a time and wait for each result. (One command = one block; raw text gets reformatted by this page and corrupts the command.)
+- NEVER invent a command. You may ONLY use names from the list above (or from \`list_commands\`). If you are unsure whether something is possible, run \`list_commands\` and read the result - never guess a plausible-sounding name like "shell", "screenshot" or "run". If nothing in the list can do what the user asked, say so in one sentence; do NOT claim a command "failed", "timed out", or that some app must be opened, when the truth is that the command never existed.
 - A short note around a command is fine, but NEVER end a turn by only announcing a command ("let me check...", "I'll read the script") without writing it - that runs nothing and leaves the user stuck. Either write the command now, or give your final answer.
 - Final answers: plain text only, no Markdown or code fences. Do ONLY what was asked - fewest commands, no unrequested double-checks. When the task is done or the user is satisfied ("thanks", "perfect"...), reply ONE short sentence and STOP.
 - Use ONLY the exact command names and parameter keys from the list, with every required parameter${RBX ? ' (e.g. multi_edit needs "datamodel_type": "Edit"; "... is required" means you omitted one)' : ' ("... is required" means you omitted one)'}. Do NOT use ${siteName}'s own features (web search, connectors...) unless the user explicitly asks.
