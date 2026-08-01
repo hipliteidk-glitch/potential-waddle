@@ -7,6 +7,7 @@ Run:  python3 test_script_server.py
 import os
 import sys
 import tempfile
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from script_server import (ScriptClient, ScriptTool, looks_like_script_spec)
@@ -154,6 +155,54 @@ ok("an image tool with no image_path errors clearly",
 # a text tool must still return the old shape
 ok("text tools still return an empty images list",
    client.call_tool("read_file", {"path": note}, 10)["images"] == [])
+
+# ── timeout hygiene (from a live Railway log: "timed out after 120.0s" at 238.7s) ──
+import subprocess as _sp
+import threading as _th
+
+# A timed-out tool must not leave background grandchildren running. Plain
+# subprocess.run() kills only the direct child.
+_spawner = ScriptClient("sp", {"type": "script", "tools": [
+    {"name": "spawner", "run": ["sh", "-c", "sleep 97 & sleep 97"], "timeout": 2}]})
+_spawner.start()
+try:
+    _spawner.call_tool("spawner", {}, 2)
+except Exception:
+    pass
+time.sleep(1)
+_left = _sp.run(["pgrep", "-fc", "sleep 97"], capture_output=True, text=True).stdout.strip()
+ok("a timed-out tool leaves no orphaned grandchildren", _left in ("", "0"), f"{_left} left")
+_sp.run(["pkill", "-f", "sleep 97"], capture_output=True)
+
+ok("the timeout message says the tool was stopped",
+   raises(lambda: _spawner.call_tool("spawner", {}, 2), "was stopped"))
+ok("the timeout message explains how to fix it",
+   raises(lambda: _spawner.call_tool("spawner", {}, 2), "timeout"))
+_sp.run(["pkill", "-f", "sleep 97"], capture_output=True)
+
+# Calls are serialised, so a queued call's WALL time exceeds its own timeout.
+# The error must say so, or it reads as a broken timeout in the bridge log.
+_q = ScriptClient("q", {"type": "script", "tools": [
+    {"name": "slow", "run": ["sleep", "20"], "timeout": 3}]})
+_q.start()
+_msgs = {}
+
+
+def _run_q(i):
+    try:
+        _q.call_tool("slow", {}, 3)
+    except Exception as e:
+        _msgs[i] = str(e)
+
+
+_threads = [_th.Thread(target=_run_q, args=(i,)) for i in (1, 2)]
+for t in _threads:
+    t.start()
+for t in _threads:
+    t.join()
+ok("the first call has no queue note", "queue" not in _msgs.get(1, ""))
+ok("a queued call reports its wait", "queue" in _msgs.get(2, ""), _msgs.get(2, "")[-90:])
+_sp.run(["pkill", "-f", "sleep 20"], capture_output=True)
 
 # ── MCPClient duck-type compatibility ──────────────────────────────────────
 for attr in ("id", "tools_cache", "call_lock", "start", "is_alive", "restart",

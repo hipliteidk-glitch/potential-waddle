@@ -40,6 +40,7 @@ import base64
 import json
 import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -97,6 +98,33 @@ def _substitute(token: str, args: dict, used: set):
                 out = out.replace(_PLACEHOLDER_OPEN + m + _PLACEHOLDER_CLOSE,
                                   os.environ[m])
     return [out]
+
+
+def _reap_group(proc):
+    """Kill a timed-out tool and everything it spawned.
+
+    start_new_session makes the child its own process-group leader, so its pid
+    IS the group id. Killing the GROUP catches background grandchildren that a
+    plain proc.kill() would leave running (and which keep the output pipes
+    open). Guarded so we can never signal our own group.
+    """
+    if proc is None:
+        return
+    pid = getattr(proc, "pid", None)
+    if pid and os.name == "posix":
+        try:
+            if os.getpgid(pid) != os.getpgid(0):
+                os.killpg(pid, signal.SIGKILL)
+        except Exception:
+            pass
+    try:
+        proc.kill()
+    except Exception:
+        pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:
+        pass
 
 
 class ScriptTool:
@@ -223,17 +251,38 @@ class ScriptTool:
         env = dict(os.environ)
         env.update({str(k): str(v) for k, v in self.env.items()})
         try:
-            res = subprocess.run(
+            # Run in its OWN PROCESS GROUP so a timeout can kill the whole
+            # tree. subprocess.run() only kills the direct child: a shell that
+            # spawned background work (`cmd &`, a daemon, an interactive CLI
+            # waiting on a browser) leaves grandchildren running forever, and
+            # they keep holding the output pipes. Killing the group prevents
+            # that pile-up across repeated timeouts.
+            # Manage the process ourselves instead of subprocess.run(): on a
+            # timeout we need the PID to kill the whole process GROUP, and
+            # TimeoutExpired does NOT carry one (verified: it exposes only cmd,
+            # timeout, output, stderr). Without the group kill, a shell that
+            # spawned background work leaves grandchildren running forever.
+            popen_kw = {}
+            if os.name == "posix":
+                popen_kw["start_new_session"] = True  # child becomes group leader
+            proc = subprocess.Popen(
                 argv, shell=self.shell, cwd=self.resolved_cwd(), env=env,
-                capture_output=True, text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
                 # Detach stdin. With no terminal attached, anything that reads
                 # stdin (an interactive prompt, `grep` with no file operand)
                 # would hang until the timeout instead of returning.
-                stdin=subprocess.DEVNULL,
-                timeout=float(timeout or self.timeout), errors="replace")
-        except subprocess.TimeoutExpired:
-            raise TimeoutError(
-                f"'{self.name}' timed out after {timeout or self.timeout}s.")
+                stdin=subprocess.DEVNULL, errors="replace", **popen_kw)
+            secs = float(timeout or self.timeout)
+            try:
+                stdout, stderr = proc.communicate(timeout=secs)
+            except subprocess.TimeoutExpired:
+                _reap_group(proc)
+                raise TimeoutError(
+                    f"'{self.name}' timed out after {secs:g}s and was stopped. If it "
+                    f"needs longer, raise its \"timeout\" in config.json; if it waits "
+                    f"for input or a browser it will NEVER finish here - tools run "
+                    f"with no terminal.")
+            res = subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
         except FileNotFoundError:
             prog = argv if isinstance(argv, str) else (argv[0] if argv else "?")
             raise RuntimeError(
@@ -241,6 +290,7 @@ class ScriptTool:
                 f"Check the \"run\" entry in config.json.")
         except PermissionError:
             raise RuntimeError(f"'{self.name}' could not run: permission denied.")
+
         out = (res.stdout or "").strip()
         err = (res.stderr or "").strip()
         # A non-zero exit is reported to the MODEL as an error string (so it can
@@ -356,14 +406,35 @@ class ScriptClient:
         return self.tools_cache
 
     def call_tool(self, name, arguments, timeout):
-        """Returns {"text":..., "images":[]} or raises - same as MCPClient."""
+        """Returns {"text":..., "images":[]} or raises - same as MCPClient.
+
+        Tool calls are serialised per server. A call that arrives while another
+        is running therefore WAITS first - so its wall-clock duration can far
+        exceed its own timeout. The bridge logs wall time, which made a queued
+        call look like a broken timeout ("timed out after 120s" logged at
+        238.7s). We now measure the wait and name it in the error.
+        """
+        _queued_at = time.monotonic()
         with self.call_lock:
+            waited = time.monotonic() - _queued_at
+            if waited > 1.0:
+                log_wait = (f" (it also waited {waited:.0f}s in the queue behind "
+                            f"another '{self.id}' command)")
+            else:
+                log_wait = ""
             if not self._alive:
                 self.start()
             tool = self.tools.get(name)
             if tool is None:
                 raise RuntimeError(f"unknown tool '{name}' on script server '{self.id}'")
-            res = tool.execute(arguments or {}, timeout=timeout)
+            try:
+                res = tool.execute(arguments or {}, timeout=timeout)
+            except TimeoutError as e:
+                # Re-raise with the queue wait appended, so the number in the
+                # message accounts for the elapsed time the bridge logs.
+                if log_wait:
+                    raise TimeoutError(str(e) + log_wait) from None
+                raise
             # execute() returns a plain string for text tools, or the full
             # {"text","images"} dict for image tools.
             if isinstance(res, dict):
