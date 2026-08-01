@@ -2346,7 +2346,7 @@
          ${P.displayName === "DeepSeek" ? `
          <section class="zs-menu-sec">
            <div class="zs-sec-label"><span>Model</span></div>
-           <div class="zs-menu-note">Expert is the thinking model and is far more reliable at writing exact commands over a long session. Instant is faster and lighter on quota, but more likely to malform a command or drift. Applies to the next new chat.</div>
+           <div class="zs-menu-note">Expert is the thinking model and is far more reliable at writing exact commands over a long session. Instant is faster and lighter on quota, but more likely to malform a command or drift. Vision is the only model that can SEE images - pick it if you want screenshot commands to work. Applies to the next new chat.</div>
            <div class="zs-set-row">
              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                <input type="radio" name="zs-model" id="zs-model-expert" value="expert" /> Expert (recommended)
@@ -2355,6 +2355,11 @@
            <div class="zs-set-row">
              <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
                <input type="radio" name="zs-model" id="zs-model-instant" value="instant" /> Instant (faster)
+             </label>
+           </div>
+           <div class="zs-set-row">
+             <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+               <input type="radio" name="zs-model" id="zs-model-vision" value="vision" /> Vision (can see screenshots)
              </label>
            </div>
          </section>` : ""}
@@ -2392,22 +2397,28 @@
       // if the choice had not applied.
       const mExpert = menuEl.querySelector("#zs-model-expert");
       const mInstant = menuEl.querySelector("#zs-model-instant");
-      if (mExpert && mInstant) {
+      const mVision = menuEl.querySelector("#zs-model-vision");
+      if (mExpert && mInstant && mVision) {
+        const radios = { expert: mExpert, instant: mInstant, vision: mVision };
         try {
           chrome.storage.local.get("zsDeepseekModel", (r) => {
-            const instant = !!(r && r.zsDeepseekModel === "instant");
-            mInstant.checked = instant;
-            mExpert.checked = !instant;
+            const v = (r && r.zsDeepseekModel) || "expert";
+            Object.keys(radios).forEach((k) => { radios[k].checked = k === v; });
+            if (!radios[v]) mExpert.checked = true;
           });
         } catch { mExpert.checked = true; }
+        const LABEL = {
+          expert: "Expert selected - starts on the next new chat.",
+          instant: "Instant selected - starts on the next new chat.",
+          vision: "Vision selected - screenshot commands will work in the next new chat.",
+        };
         const saveModel = (v) => {
           try { chrome.storage.local.set({ zsDeepseekModel: v }); } catch {}
-          ui.toast(v === "instant"
-            ? "Instant selected - starts on the next new chat."
-            : "Expert selected - starts on the next new chat.");
+          ui.toast(LABEL[v] || LABEL.expert);
         };
-        mExpert.addEventListener("change", () => mExpert.checked && saveModel("expert"));
-        mInstant.addEventListener("change", () => mInstant.checked && saveModel("instant"));
+        Object.keys(radios).forEach((k) => {
+          radios[k].addEventListener("change", () => radios[k].checked && saveModel(k));
+        });
       }
       const mcpNameEl = menuEl.querySelector("#zs-mcp-name");
       const mcpUrlEl = menuEl.querySelector("#zs-mcp-url");

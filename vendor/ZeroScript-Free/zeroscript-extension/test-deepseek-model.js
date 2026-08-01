@@ -31,6 +31,7 @@ function makeRadio(type, label, checked) {
 }
 
 function scenario({ tabs, prefer }) {
+  const preferredModel = prefer === true ? "instant" : (prefer || "expert");
   const radios = tabs.map((t) => makeRadio(t.type, t.label, !!t.checked));
   // Selecting one radio unchecks the rest, as a real radiogroup does.
   radios.forEach((r) => {
@@ -54,19 +55,21 @@ function scenario({ tabs, prefer }) {
   const isVisionSelected = () => radioOn(findVisionRadio());
 
   // The branch under test, mirroring enforceComposer in providers/deepseek.js.
-  const preferInstant = !!prefer;
-  if (!isVisionSelected()) {
-    const wantInstant = preferInstant && !!findInstantRadio();
-    const target = wantInstant ? findInstantRadio() : findExpertRadio();
-    if (target && target.getAttribute("aria-checked") !== "true") target.click();
+  let target = null;
+  if (preferredModel === "vision") {
+    target = findVisionRadio() || findExpertRadio();
+  } else if (!isVisionSelected()) {
+    const wantInstant = preferredModel === "instant" && !!findInstantRadio();
+    target = wantInstant ? findInstantRadio() : findExpertRadio();
   }
+  if (target && target.getAttribute("aria-checked") !== "true") target.click();
   const selected = radios.find((r) => radioOn(r));
   const state = {
     expertOn: radioOn(findExpertRadio()),
     instantOn: radioOn(findInstantRadio()),
     visionOn: radioOn(findVisionRadio()),
   };
-  const ready = state.expertOn || state.visionOn || (preferInstant && state.instantOn);
+  const ready = state.expertOn || state.visionOn || (preferredModel === "instant" && state.instantOn);
   return { selected: selected ? selected._type : null, ready, radios };
 }
 
@@ -131,9 +134,26 @@ ok("Instant alone is NOT ready when Expert is preferred", onlyInstantOn === fals
 // ── the real file still parses and contains the wiring ────────────────────
 const src = fs.readFileSync(path.join(__dirname, "providers", "deepseek.js"), "utf8");
 ok("provider reads the saved preference", src.includes("zsDeepseekModel"));
+ok("provider supports a three-way model choice", src.includes('"vision"') && src.includes("preferredModel"));
+ok("provider no longer uses the old boolean", !src.includes("preferInstant"));
 ok("provider has an Instant finder", src.includes("findInstantRadio"));
 ok("provider still defaults to Expert", src.includes("findExpertRadio()"));
 
+
+// ── Vision as a stored preference ──────────────────────────────────────────
+r = scenario({ tabs: FULL, prefer: "vision" });
+ok("preferring Vision selects the Vision tab", r.selected === "vision", r.selected);
+ok("Vision preference is ready", r.ready);
+
+r = scenario({ tabs: [
+  { type: "default", label: "Instant" },
+  { type: "expert", label: "Expert", checked: true },
+], prefer: "vision" });
+ok("missing Vision tab falls back to Expert", r.selected === "expert", r.selected);
+ok("Vision fallback is still ready", r.ready);
+
+r = scenario({ tabs: FULL, prefer: "expert" });
+ok("expert preference still wins by default", r.selected === "expert", r.selected);
 
 // ── Vision-tool gating ─────────────────────────────────────────────────────
 // A tool that only returns an image must be hidden when the selected model

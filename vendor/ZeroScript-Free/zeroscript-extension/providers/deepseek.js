@@ -297,15 +297,16 @@ const ZSProvider = (() => {
   // user who wants speed (or is conserving quota) can opt into Instant; we then
   // start in Instant instead of forcing Expert. Read once at load and kept in
   // sync, so the choice survives a service-worker restart.
-  let preferInstant = false;
+  // "expert" (default) | "instant" | "vision". Vision is the only model that
+  // can SEE images, so choosing it here is what makes screenshot tools usable
+  // without hunting for the tab by hand.
+  const MODELS = ["expert", "instant", "vision"];
+  let preferredModel = "expert";
+  const setPreferred = (v) => { preferredModel = MODELS.includes(v) ? v : "expert"; };
   try {
-    chrome.storage.local.get("zsDeepseekModel", (r) => {
-      preferInstant = !!(r && r.zsDeepseekModel === "instant");
-    });
+    chrome.storage.local.get("zsDeepseekModel", (r) => setPreferred(r && r.zsDeepseekModel));
     chrome.storage.onChanged.addListener((c, area) => {
-      if (area === "local" && c.zsDeepseekModel) {
-        preferInstant = c.zsDeepseekModel.newValue === "instant";
-      }
+      if (area === "local" && c.zsDeepseekModel) setPreferred(c.zsDeepseekModel.newValue);
     });
   } catch {}
   const radioOn = (r) => !!r && r.getAttribute("aria-checked") === "true";
@@ -371,7 +372,7 @@ const ZSProvider = (() => {
       expertOn: radioOn(expert),
       instantFound: !!instant,
       instantOn: radioOn(instant),
-      preferInstant,
+      preferredModel,
       visionFound: !!vision,
       visionOn: radioOn(vision),
       deepThinkFound: !!deepThink,
@@ -395,15 +396,24 @@ const ZSProvider = (() => {
       // EXCEPTION: if the user deliberately chose the Vision tab, RESPECT it (don't
       // force Expert back) - that's the only way to feed DeepSeek images, and
       // supportsVision then flips true so screen_capture is allowed for that turn.
-      if (!isVisionSelected()) {
-        // Honour the user's preference; fall back to Expert if the Instant tab
-        // is not present (older UI), so we never fail to select SOME model.
-        const wantInstant = preferInstant && !!findInstantRadio();
-        const target = wantInstant ? findInstantRadio() : findExpertRadio();
-        const label = wantInstant ? "instant" : "expert";
-        if (target && target.getAttribute("aria-checked") !== "true") {
-          try { target.click(); } catch (e) { diag("mode_fallback", { reason, target: label, error: String(e && e.message || e) }); }
-        }
+      // Pick the configured model. Vision is handled first because the
+      // isVisionSelected() guard below exists to preserve a MANUAL Vision
+      // choice - when Vision is the stored preference we must be able to
+      // select it ourselves, not just avoid overriding it.
+      let label = preferredModel;
+      let target = null;
+      if (preferredModel === "vision") {
+        target = findVisionRadio() || findExpertRadio();
+        if (!findVisionRadio()) label = "expert(vision-missing)";
+      } else if (!isVisionSelected()) {
+        // Fall back to Expert if the requested tab is absent (older UI), so we
+        // never end up selecting no model at all.
+        const wantInstant = preferredModel === "instant" && !!findInstantRadio();
+        target = wantInstant ? findInstantRadio() : findExpertRadio();
+        if (!wantInstant) label = "expert";
+      }
+      if (target && target.getAttribute("aria-checked") !== "true") {
+        try { target.click(); } catch (e) { diag("mode_fallback", { reason, target: label, error: String(e && e.message || e) }); }
       }
 
       // Legacy DeepSeek UI only: if a separate DeepThink toggle still exists, turn
@@ -437,13 +447,13 @@ const ZSProvider = (() => {
       // Ready as soon as the agent model is on (Expert, OR Vision if the user
       // chose it) and Search is off. DeepThink is only required if a legacy toggle
       // is actually present (V4 has none).
-      const modelOn = state.expertOn || state.visionOn || (preferInstant && state.instantOn);
+      const modelOn = state.expertOn || state.visionOn || (preferredModel === "instant" && state.instantOn);
       if (modelOn && state.searchOff && (state.deepThinkOn || !state.deepThinkFound)) break;
       await sleep(120);
     }
     state = composerModeState();
     diag("mode_ready", { reason, ...state });
-    return { ...state, ready: state.expertOn || state.visionOn || (preferInstant && state.instantOn) };
+    return { ...state, ready: state.expertOn || state.visionOn || (preferredModel === "instant" && state.instantOn) };
   }
 
   // DeepSeek's footer button doubles as SEND (an upward arrow) and STOP (a
