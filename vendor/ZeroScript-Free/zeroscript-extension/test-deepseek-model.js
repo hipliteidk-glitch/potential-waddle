@@ -134,5 +134,32 @@ ok("provider reads the saved preference", src.includes("zsDeepseekModel"));
 ok("provider has an Instant finder", src.includes("findInstantRadio"));
 ok("provider still defaults to Expert", src.includes("findExpertRadio()"));
 
+
+// ── Vision-tool gating ─────────────────────────────────────────────────────
+// A tool that only returns an image must be hidden when the selected model
+// cannot see images, so the AI never calls it and then misreports the refusal
+// as a failure (observed live: it blamed Roblox Studio being closed).
+{
+  const VISION_TOOLS = new Set(["screen_capture", "screenshot", "take_screenshot"]);
+  const isVisionToolName = (bare) =>
+    VISION_TOOLS.has(bare) || /(^|_)(screenshot|screen_capture)$/.test(bare || "");
+  const blocked = (bare, supportsVision) => isVisionToolName(bare) && !supportsVision;
+
+  ok("screenshot blocked on a non-vision model", blocked("screenshot", false));
+  ok("screen_capture blocked on a non-vision model", blocked("screen_capture", false));
+  ok("screenshot allowed on Vision", !blocked("screenshot", true));
+  ok("screen_capture allowed on Vision", !blocked("screen_capture", true));
+  ok("a prefixed phone_screenshot is still caught", blocked("phone_screenshot", false));
+  ok("take_screenshot is caught", blocked("take_screenshot", false));
+  ok("an ordinary tool is never blocked", !blocked("read_file", false));
+  ok("a name merely containing 'screen' is not blocked", !blocked("screen_brightness", false));
+
+  const src = require("fs").readFileSync(
+    require("path").join(__dirname, "core", "main.js"), "utf8");
+  ok("main.js uses the widened matcher", src.includes("isVisionToolName"));
+  ok("refusal explains it is a model limit, not a failure",
+     src.includes("not a broken command"));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

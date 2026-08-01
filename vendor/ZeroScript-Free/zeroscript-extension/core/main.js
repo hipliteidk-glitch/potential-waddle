@@ -690,12 +690,20 @@
   // are handled (see the `r.images.length` branch) and turned into a plain
   // error on non-vision providers, so nothing needs to be predicted here.
   const ALWAYS_BLOCKED_TOOLS = new Set(["subagent"]);
-  const VISION_TOOLS = new Set(["screen_capture"]);
+  // Tools whose ONLY output is an image. Hidden from the model entirely when
+  // the provider's model cannot see images (e.g. DeepSeek Expert/Instant),
+  // because calling one there wastes a turn and returns nothing usable.
+  // "screenshot" is the script-server tool (config.termux.json); "screen_capture"
+  // is Roblox Studio's. Any tool whose name ends in _screenshot/_screen_capture
+  // counts too, so a server-prefixed or user-renamed variant is not missed.
+  const VISION_TOOLS = new Set(["screen_capture", "screenshot", "take_screenshot"]);
+  const isVisionToolName = (bare) =>
+    VISION_TOOLS.has(bare) || /(^|_)(screenshot|screen_capture)$/.test(bare || "");
   const bareToolName = (name) => (name && name.includes("/") ? name.split("/").pop() : name) || "";
   const isBlockedTool = (name) => {
     const bare = bareToolName(name);
     if (ALWAYS_BLOCKED_TOOLS.has(bare)) return true;
-    if (VISION_TOOLS.has(bare) && !P.supportsVision) return true;
+    if (isVisionToolName(bare) && !P.supportsVision) return true;
     return false;
   };
 
@@ -756,8 +764,11 @@
     // model abandons it and continues instead of wasting/hanging a turn.
     const bareName = bareToolName(name);
     if (isBlockedTool(name)) {
-      if (VISION_TOOLS.has(bareName)) {
-        return `ERROR: '${bareName}' is unavailable here - this assistant cannot see images. Do NOT call it again. Inspect the place programmatically instead (e.g. inspect_instance, get_studio_state, search_game_tree, script_read).`;
+      if (isVisionToolName(bareName)) {
+        const how = tgtIsRoblox()
+          ? "Inspect the place programmatically instead (e.g. inspect_instance, get_studio_state, search_game_tree, script_read)."
+          : "Get the information as text instead, using another command.";
+        return `ERROR: '${bareName}' is unavailable here - this assistant cannot see images, because the current ${P.displayName} model has no vision. Do NOT call it again and do NOT report it as a failure or a timeout: it is a limitation of the selected model, not a broken command. ${how} (The user can enable it by starting a new chat on the Vision model.)`;
       }
       return `ERROR: the '${bareName}' command timed out and is unavailable in this environment. Do NOT call it again - complete the task yourself using the other commands (execute_luau, multi_edit, etc.).`;
     }
