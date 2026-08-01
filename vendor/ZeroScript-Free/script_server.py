@@ -244,7 +244,16 @@ class ScriptTool:
             if m in os.environ:
                 out = out.replace(_PLACEHOLDER_OPEN + m + _PLACEHOLDER_CLOSE,
                                   os.environ[m])
-        return os.path.expanduser(os.path.expandvars(out))
+        out = os.path.expanduser(os.path.expandvars(out))
+        # A RELATIVE image_path (e.g. the tool's own {path} parameter, "shot.png")
+        # must resolve against the tool's cwd, exactly like the command itself
+        # does - otherwise it is looked up next to the bridge and reported as
+        # "did not produce an image" even though the file is right there.
+        if out and not os.path.isabs(out):
+            base = self.resolved_cwd()
+            if base:
+                out = os.path.join(base, out)
+        return out
 
     def execute(self, args: dict, timeout=None):
         argv, _ = self.build_argv(args or {})

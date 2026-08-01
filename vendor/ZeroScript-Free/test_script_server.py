@@ -156,6 +156,14 @@ ok("an image tool with no image_path errors clearly",
 ok("text tools still return an empty images list",
    client.call_tool("read_file", {"path": note}, 10)["images"] == [])
 
+# a RELATIVE image_path must resolve against the tool's cwd, not the bridge dir
+_rel = ScriptClient("rel", {"type": "script", "tools": [
+    {"name": "show", "params": {"path": "p"}, "returns": "image",
+     "image_path": "{path}", "cwd": tmp, "run": ["echo", "ok"]}]})
+_rel.start()
+_relres = _rel.call_tool("show", {"path": "shot.png"}, 10)
+ok("a relative image_path resolves against cwd", len(_relres["images"]) == 1, _relres)
+
 # ── timeout hygiene (from a live Railway log: "timed out after 120.0s" at 238.7s) ──
 import subprocess as _sp
 import threading as _th

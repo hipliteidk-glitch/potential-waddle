@@ -161,7 +161,7 @@
         },
         {
           "name": "screenshot",
-          "description": "Take a screenshot of the phone screen and show it. Requires the Termux:API app plus 'pkg install termux-api'. Only works if the assistant can see images (DeepSeek Vision tab).",
+          "description": "Take a screenshot of the phone screen and show it. Tries Termux:API, then Android's built-in screencap. Only works if the assistant can see images (DeepSeek Vision model).",
           "returns": "image",
           "image_path": "{ZS_WORKSPACE}/.zs-screenshot.png",
           "timeout": 45,
@@ -169,7 +169,29 @@
           "run": [
             "sh",
             "-c",
-            "command -v termux-screenshot >/dev/null 2>&1 || { echo 'termux-screenshot not found. Install the Termux:API app from F-Droid AND run: pkg install termux-api' >&2; exit 1; }; rm -f \"$ZS_WORKSPACE/.zs-screenshot.png\"; termux-screenshot \"$ZS_WORKSPACE/.zs-screenshot.png\" >/dev/null 2>&1; echo 'screen captured'"
+            "out=\"$ZS_WORKSPACE/.zs-screenshot.png\"; rm -f \"$out\"; if command -v termux-screenshot >/dev/null 2>&1; then   termux-screenshot \"$out\" >/dev/null 2>&1; fi; if [ ! -s \"$out\" ] && command -v screencap >/dev/null 2>&1; then   screencap -p \"$out\" >/dev/null 2>&1; fi; if [ ! -s \"$out\" ]; then   echo \"Could not capture the screen. Android blocks screenshots from a plain shell unless Termux:API is installed (Termux:API app from F-Droid + 'pkg install termux-api'), or the device is rooted. If you already have a screenshot saved, use show_image with its path instead.\" >&2; exit 1; fi; echo \"screen captured\""
+          ]
+        },
+        {
+          "name": "show_image",
+          "description": "Show an image file that already exists on the phone (png/jpg), so the assistant can look at it. Give the path, e.g. screenshot.png. Requires a model that can see images (DeepSeek Vision).",
+          "params": {
+            "path": {
+              "type": "string",
+              "description": "image file, relative to the workspace",
+              "required": true
+            }
+          },
+          "returns": "image",
+          "image_path": "{path}",
+          "cwd": "{ZS_WORKSPACE}",
+          "timeout": 30,
+          "run": [
+            "sh",
+            "-c",
+            "f=\"$1\"; case \"$f\" in /*) : ;; *) f=\"$ZS_WORKSPACE/$f\" ;; esac; [ -s \"$f\" ] || { echo \"No such image: $f\" >&2; exit 1; }; echo \"showing $f\"",
+            "sh",
+            "{path}"
           ]
         }
       ]
