@@ -179,6 +179,79 @@ ok("provider exports the interface the core needs",
   ok("provider de-duplicates nested wrappers", src2.includes("o.contains(w)"));
 }
 
+// ── the widget-only reply that actually failed live ────────────────────────
+// Captured ancestor chain from the JSON widget of a failing list_commands
+// reply:  CODE > PRE.shiki > .code-block_container > .not-prose > PRE
+//              > .prose > .flex.flex-col.gap-2 > (outer wrapper)
+// The outer wrapper class VARIES, so keying on it hid this turn. The inner
+// container is constant, so turns anchor there.
+{
+  const mk = (cls, { text = "", widget = false, parent = null, editable = false } = {}) => ({
+    className: cls,
+    textContent: text,
+    isContentEditable: false,
+    classList: { contains: (c) => cls.split(/\s+/).includes(c) },
+    offsetParent: {},
+    parentElement: parent,
+    closest: () => null,
+    querySelector: (sel) => {
+      if (sel.includes("contenteditable")) return editable ? {} : null;
+      return widget && /pre|code|not-prose/.test(sel) ? {} : null;
+    },
+    contains: () => false,
+  });
+
+  const isComposer = (e) => !!e && (e.classList.contains("tiptap") ||
+    e.classList.contains("ProseMirror") || e.isContentEditable);
+  const isTurnWrap = (el) => {
+    if (!el || isComposer(el)) return false;
+    if (el.querySelector && el.querySelector('[contenteditable="true"]')) return false;
+    const txt = (el.textContent || "").trim();
+    const hasWidget = !!(el.querySelector && el.querySelector("pre, code, .not-prose"));
+    return txt.length > 0 || hasWidget;
+  };
+  const roleFromAncestors = (el) => {
+    let n = el;
+    for (let i = 0; i < 3 && n; i++) {
+      const c = n.className || "";
+      if (typeof c === "string" && /text-text-primary/.test(c) && /py-2/.test(c)) return "user";
+      n = n.parentElement;
+    }
+    return "assistant";
+  };
+
+  // the real failing reply: thought block + JSON widget, no plain paragraph
+  const outer = mk("px-3 pb-3");
+  const inner = mk("flex flex-col gap-2", {
+    text: 'JSON{"command":"list_commands"}', widget: true, parent: outer });
+  ok("the widget-only turn IS collected", isTurnWrap(inner));
+  ok("the widget-only turn is an assistant turn", roleFromAncestors(inner) === "assistant");
+  ok("its text carries the JSON for the parser",
+     inner.textContent.includes('"command":"list_commands"'));
+
+  // an outer wrapper with an UNEXPECTED class must still work
+  const oddOuter = mk("relative pl-6 pr-2 pt-4");
+  const oddInner = mk("flex flex-col gap-2", {
+    text: 'JSON{"command":"list_commands"}', widget: true, parent: oddOuter });
+  ok("an unexpected outer wrapper class no longer hides the turn", isTurnWrap(oddInner));
+  ok("it still classifies as assistant", roleFromAncestors(oddInner) === "assistant");
+
+  // a user turn: the role class is on an ancestor
+  const userOuter = mk("px-3 text-text-primary body-base py-2");
+  const userInner = mk("flex flex-col gap-2", { text: "Write essay", parent: userOuter });
+  ok("a user turn is found via its ancestor role class",
+     roleFromAncestors(userInner) === "user");
+
+  // the composer must never count
+  const compInner = mk("flex flex-col gap-2", { text: "typing", editable: true });
+  ok("the composer is still excluded", !isTurnWrap(compInner));
+
+  const src4 = fs.readFileSync(path.join(__dirname, "providers", "arena-agent.js"), "utf8");
+  ok("provider anchors on the inner container", src4.includes("TURN_INNER"));
+  ok("provider looks upward for the role", src4.includes("roleFromAncestors"));
+  ok("provider records the captured chain", src4.includes("code-block_container"));
+}
+
 // ── streaming detection with no site signal ────────────────────────────────
 // Confirmed live: the /agent DOM is IDENTICAL mid-generation - no stop button,
 // no streaming marker - so growth is the only signal. The turn wrapper is

@@ -61,7 +61,23 @@ const ZSProvider = (() => {
   // NO_TURN_GRACE and reported "Arena Agent did not respond in time" even
   // though the model HAD answered (seen live 2026-08 on the very first
   // list_commands turn, which Arena renders as a JSON widget).
-  const TURN_WRAP = "div.px-3";
+  // Anchor on the TURN INNER, not the outer wrapper.
+  //
+  // The outer wrapper's class varies: a plain text reply sits under
+  // "px-3 pb-3", but the failing list_commands reply (a "Thought for N
+  // seconds" block plus a JSON widget) is laid out differently - the captured
+  // ancestor chain from that widget was:
+  //     CODE > PRE.shiki > .code-block_container > .not-prose > PRE
+  //          > .prose > .flex.flex-col.gap-2 > (wrapper)
+  // Every turn observed so far - text, widget, or both - has the SAME inner
+  // container: div.flex.flex-col.gap-2. Keying on that is stable, whereas
+  // guessing the outer class made widget-only turns invisible: allItems()
+  // skipped them, so the JSON never reached the parser even though the parser
+  // handles it correctly (verified against the exact captured text).
+  const TURN_INNER = "div.flex.flex-col.gap-2";
+  // The role classes live 1-2 levels ABOVE the inner container, so look upward
+  // rather than assuming a fixed depth.
+  const ROLE_UP = 3;
 
   const S = {
     // The composer: TipTap contenteditable.
@@ -89,12 +105,25 @@ const ZSProvider = (() => {
   // Is this wrapper a real transcript turn? It must carry one of the two role
   // shapes AND hold some content, but must never be the composer's own
   // container. Widget-only replies (JSON blocks, thought blocks) qualify.
+  // Walk up looking for whichever ancestor carries a role class. Returns
+  // "user" | "assistant"; defaults to assistant, matching the observed layout
+  // where only user turns are specially marked.
+  const roleFromAncestors = (el) => {
+    let n = el;
+    for (let i = 0; i < ROLE_UP && n; i++) {
+      const c = n.className || "";
+      if (typeof c === "string" && /text-text-primary/.test(c) && /py-2/.test(c))
+        return "user";
+      n = n.parentElement;
+    }
+    return "assistant";
+  };
+
   const isTurnWrap = (el) => {
     if (!el || isComposerNode(el)) return false;
     if (el.querySelector && el.querySelector('[contenteditable="true"]')) return false;
-    const c = el.className || "";
-    const roleish = (/text-text-primary/.test(c) && /py-2/.test(c)) || /\bpb-3\b/.test(c);
-    if (!roleish) return false;
+    // A turn must carry SOMETHING: text, or a code/JSON widget. This is what
+    // lets a widget-only reply count.
     const txt = (el.textContent || "").trim();
     const hasWidget = !!(el.querySelector && el.querySelector("pre, code, .not-prose"));
     return txt.length > 0 || hasWidget;
@@ -113,14 +142,10 @@ const ZSProvider = (() => {
     // Collect TURN WRAPPERS, not .prose bodies: a reply may be a widget with no
     // .prose at all (see TURN_WRAP). Nested wrappers are dropped so one turn is
     // counted once. DOM order here is already chronological.
-    const wraps = [...document.querySelectorAll(TURN_WRAP)].filter(isTurnWrap);
+    const wraps = [...document.querySelectorAll(TURN_INNER)].filter(isTurnWrap);
     return wraps.filter((w) => !wraps.some((o) => o !== w && o.contains(w)));
   }
-  // The role classes sit on the wrapper itself now.
-  const roleOfWrap = (el) => {
-    const c = (el && el.className) || "";
-    return /text-text-primary/.test(c) && /py-2/.test(c) ? "user" : "assistant";
-  };
+  const roleOfWrap = (el) => roleFromAncestors(el);
   const isUserItem = (el) => isTurnWrap(el) && roleOfWrap(el) === "user";
   const isAssistantItem = (el) => isTurnWrap(el) && roleOfWrap(el) === "assistant";
   const itemText = (el) => (el && el.textContent) || "";
