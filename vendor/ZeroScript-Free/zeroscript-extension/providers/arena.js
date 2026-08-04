@@ -524,6 +524,13 @@ const ZSProvider = (() => {
   // fails OPEN (unknown → allow) so a DOM reskin never wrongly blocks the default.
   const MODE_RE = /\b(direct|battle|agent|side by side)\b/i;
   const SUPPORTED_MODES = new Set(["direct"]);
+  // Agent Mode is a SEPARATE app on its own route, not just another value in the
+  // mode dropdown - and this content script still runs there (the manifest
+  // matches arena.ai/*). The dropdown may not even exist on that page, so
+  // currentMode() returns null and the "fail open" rule would wrongly allow
+  // Start on a page whose DOM this provider cannot drive at all. Check the
+  // route explicitly.
+  const onAgentRoute = () => /^\/agent(\/|$)/.test(location.pathname);
   function currentMode() {
     for (const c of document.querySelectorAll('button[role="combobox"]')) {
       if (c.offsetParent === null) continue;
@@ -565,6 +572,7 @@ const ZSProvider = (() => {
   // True unless we POSITIVELY detect an unsupported mode (Battle / Side by Side)
   // or one of the composer's Build Apps / Web Search / Generate Image modes.
   const isSupportedMode = () => {
+    if (onAgentRoute()) return false;
     if (activeUnsupportedMode()) return false;
     const m = currentMode();
     return m === null || SUPPORTED_MODES.has(m);
@@ -609,6 +617,10 @@ const ZSProvider = (() => {
   // DOM reskin never nags on the supported default). The core turns this into a
   // red warning state and disables Start until the user switches to Direct.
   function modeWarning() {
+    if (onAgentRoute())
+      return `ZeroScript can't run in <b>Agent Mode</b> - it's a separate Arena app ` +
+        `with a different editor and no chat list, so the agent loop has nothing to ` +
+        `drive. Open a normal chat (<b>arena.ai/text/direct</b>) and use <b>Direct</b> mode.`;
     const um = activeUnsupportedMode();
     if (um)
       return `Turn off <b>${um.label}</b> (${um.tip} in the composer) - ` +
