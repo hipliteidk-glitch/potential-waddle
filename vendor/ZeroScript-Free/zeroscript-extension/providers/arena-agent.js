@@ -53,6 +53,16 @@ const ZSProvider = (() => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let diag = () => {};
 
+  // A turn's OUTER wrapper. The role classes live here (see DOM notes), and
+  // crucially this exists even when the reply contains NO .prose paragraph -
+  // e.g. a reply that is only a code/JSON widget ("{} JSON" + copy button) or
+  // only a "Thought for N seconds" block. Keying turns on .prose alone made
+  // such replies invisible: assistantCount() never rose, the core waited out
+  // NO_TURN_GRACE and reported "Arena Agent did not respond in time" even
+  // though the model HAD answered (seen live 2026-08 on the very first
+  // list_commands turn, which Arena renders as a JSON widget).
+  const TURN_WRAP = "div.px-3";
+
   const S = {
     // The composer: TipTap contenteditable.
     editor: '[contenteditable="true"].tiptap, [contenteditable="true"].ProseMirror',
@@ -76,6 +86,20 @@ const ZSProvider = (() => {
   const isTurnBody = (el) =>
     !!el && el.classList && el.classList.contains("prose") && !isComposerNode(el);
 
+  // Is this wrapper a real transcript turn? It must carry one of the two role
+  // shapes AND hold some content, but must never be the composer's own
+  // container. Widget-only replies (JSON blocks, thought blocks) qualify.
+  const isTurnWrap = (el) => {
+    if (!el || isComposerNode(el)) return false;
+    if (el.querySelector && el.querySelector('[contenteditable="true"]')) return false;
+    const c = el.className || "";
+    const roleish = (/text-text-primary/.test(c) && /py-2/.test(c)) || /\bpb-3\b/.test(c);
+    if (!roleish) return false;
+    const txt = (el.textContent || "").trim();
+    const hasWidget = !!(el.querySelector && el.querySelector("pre, code, .not-prose"));
+    return txt.length > 0 || hasWidget;
+  };
+
   // Role lives on the grandparent's class list (see DOM notes).
   const roleOf = (el) => {
     const g = el && el.parentElement && el.parentElement.parentElement;
@@ -86,12 +110,19 @@ const ZSProvider = (() => {
 
   // ── turns ──────────────────────────────────────────────────────────────────
   function allItems() {
-    // No list element exists, so collect bodies document-wide and drop the
-    // composer. DOM order here is already chronological.
-    return [...document.querySelectorAll(S.proseAny)].filter(isTurnBody);
+    // Collect TURN WRAPPERS, not .prose bodies: a reply may be a widget with no
+    // .prose at all (see TURN_WRAP). Nested wrappers are dropped so one turn is
+    // counted once. DOM order here is already chronological.
+    const wraps = [...document.querySelectorAll(TURN_WRAP)].filter(isTurnWrap);
+    return wraps.filter((w) => !wraps.some((o) => o !== w && o.contains(w)));
   }
-  const isUserItem = (el) => isTurnBody(el) && roleOf(el) === "user";
-  const isAssistantItem = (el) => isTurnBody(el) && roleOf(el) === "assistant";
+  // The role classes sit on the wrapper itself now.
+  const roleOfWrap = (el) => {
+    const c = (el && el.className) || "";
+    return /text-text-primary/.test(c) && /py-2/.test(c) ? "user" : "assistant";
+  };
+  const isUserItem = (el) => isTurnWrap(el) && roleOfWrap(el) === "user";
+  const isAssistantItem = (el) => isTurnWrap(el) && roleOfWrap(el) === "assistant";
   const itemText = (el) => (el && el.textContent) || "";
 
   const assistantItems = () => allItems().filter(isAssistantItem);

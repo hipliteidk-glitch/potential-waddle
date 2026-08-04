@@ -101,6 +101,63 @@ ok("provider exports the interface the core needs",
    ["allItems", "assistantCount", "lastAssistant", "typeAndSend", "getEditor",
     "installSendHooks", "streamLen", "snapshot"].every((k) => src.includes(k)));
 
+// ── widget-only replies must still count as a turn ─────────────────────────
+// Live failure (2026-08): the first list_commands reply rendered as a JSON
+// widget + "Thought for 1 second", with NO .prose paragraph. Keying turns on
+// .prose alone made it invisible, so the core reported "did not respond in
+// time" even though the model had answered.
+{
+  const wrap = (cls, { text = "", widget = false, editable = false } = {}) => ({
+    className: cls,
+    textContent: text,
+    isContentEditable: false,
+    classList: { contains: (c) => cls.split(/\s+/).includes(c) },
+    offsetParent: {},
+    closest: () => null,
+    querySelector: (sel) => {
+      if (sel.includes("contenteditable")) return editable ? {} : null;
+      return widget && /pre|code|not-prose/.test(sel) ? {} : null;
+    },
+  });
+  const isComposer = (e) => !!e && (e.classList.contains("tiptap") ||
+    e.classList.contains("ProseMirror") || e.isContentEditable);
+  const isTurnWrap = (el) => {
+    if (!el || isComposer(el)) return false;
+    if (el.querySelector && el.querySelector('[contenteditable="true"]')) return false;
+    const c = el.className || "";
+    const roleish = (/text-text-primary/.test(c) && /py-2/.test(c)) || /\bpb-3\b/.test(c);
+    if (!roleish) return false;
+    const txt = (el.textContent || "").trim();
+    const hasWidget = !!(el.querySelector && el.querySelector("pre, code, .not-prose"));
+    return txt.length > 0 || hasWidget;
+  };
+  const roleOfWrap = (el) => /text-text-primary/.test(el.className) &&
+    /py-2/.test(el.className) ? "user" : "assistant";
+
+  const jsonOnly = wrap("px-3 pb-3", { text: "", widget: true });
+  ok("a widget-only reply still counts as a turn", isTurnWrap(jsonOnly));
+  ok("a widget-only reply is an assistant turn", roleOfWrap(jsonOnly) === "assistant");
+
+  const textReply = wrap("px-3 pb-3", { text: "Hey!" });
+  ok("a normal text reply still counts", isTurnWrap(textReply));
+
+  const userTurn = wrap("px-3 text-text-primary body-base py-2", { text: "Oo" });
+  ok("a user turn is still detected", isTurnWrap(userTurn) && roleOfWrap(userTurn) === "user");
+
+  const composerWrap = wrap("px-3 pb-3", { text: "typing", editable: true });
+  ok("the composer wrapper is never a turn", !isTurnWrap(composerWrap));
+
+  const empty = wrap("px-3 pb-3", { text: "" });
+  ok("an empty wrapper with no widget is not a turn", !isTurnWrap(empty));
+
+  const unrelated = wrap("px-3", { text: "toolbar" });
+  ok("a non-role wrapper is not a turn", !isTurnWrap(unrelated));
+
+  const src2 = fs.readFileSync(path.join(__dirname, "providers", "arena-agent.js"), "utf8");
+  ok("provider keys turns on wrappers", src2.includes("TURN_WRAP"));
+  ok("provider de-duplicates nested wrappers", src2.includes("o.contains(w)"));
+}
+
 // ── manifest wiring: the two Arena providers must NEVER share a document ───
 // Both files declare `const ZSProvider`; loading both would throw
 // "Identifier 'ZSProvider' has already been declared" and neither would run.
