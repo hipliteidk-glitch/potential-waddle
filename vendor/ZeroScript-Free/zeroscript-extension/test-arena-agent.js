@@ -64,28 +64,49 @@ ok("a real reply IS a turn body", isTurnBody(body));
 ok("a real reply is not the composer", !isComposerNode(body));
 
 // ── user vs assistant, against the captured transcript ─────────────────────
-const transcript = [
-  el(BODY_CLS, { gparentCls: USER_GPARENT, text: "Oo" }),
-  el(BODY_CLS, { gparentCls: ASSISTANT_GPARENT, text: "Hey! Looks like that message may have" }),
-  el(BODY_CLS, { gparentCls: USER_GPARENT, text: "O" }),
-  el(BODY_CLS, { gparentCls: ASSISTANT_GPARENT, text: "Still just a quick one!" }),
+// A REAL 14-turn transcript captured from /agent. Note it does NOT strictly
+// alternate: the user sent two messages in a row more than once (sequence is
+// UUAUAUAUUAUAUA). An earlier version of this test asserted alternation from a
+// 4-turn sample - that was an accident of the sample, not a property of the
+// site, so nothing may depend on it.
+const REAL = [
+  ["user", "https://github.com/hipliteidk-glitch/pot"],
+  ["user", "Write essay"],
+  ["assistant", "The Evolution of Game Creation: An Overv"],
+  ["user", "How many words"],
+  ["assistant", "The essay is 576 words long."],
+  ["user", "I want 1 min"],
+  ["assistant", "ZeroScript Free: AI-Powered Roblox Devel"],
+  ["user", "I want u speak 1 min"],
+  ["user", "I want u text 1 min"],
+  ["assistant", "ZeroScript Free is an innovative, open-s"],
+  ["user", "I want u text 1 min not read u didn't te"],
+  ["assistant", "ZeroScript Free represents a significant"],
+  ["user", "Text then sleep"],
+  ["assistant", "ZeroScript Free is a revolutionary open-"],
 ];
+const transcript = REAL.map(([role, text]) =>
+  el(BODY_CLS, { gparentCls: role === "user" ? USER_GPARENT : ASSISTANT_GPARENT, text }));
 const roles = transcript.map(roleOf);
-ok("roles alternate user/assistant as captured",
-   roles.join() === "user,assistant,user,assistant", roles.join());
-ok("assistant turns counted correctly", roles.filter((r) => r === "assistant").length === 2);
-ok("user turns counted correctly", roles.filter((r) => r === "user").length === 2);
+ok("every turn in a real 14-turn transcript is classified correctly",
+   roles.join() === REAL.map((r) => r[0]).join(), roles.join());
+ok("assistant turns counted correctly", roles.filter((r) => r === "assistant").length === 6);
+ok("user turns counted correctly", roles.filter((r) => r === "user").length === 8);
+ok("consecutive user turns are handled (no alternation assumed)",
+   roles[7] === "user" && roles[8] === "user");
 
 // with the composer mixed in, it must never be counted
 const withComposer = [...transcript, composer];
 const bodies = withComposer.filter(isTurnBody);
-ok("the composer is excluded from the turn list", bodies.length === 4, `${bodies.length}`);
+ok("the composer is excluded from the turn list", bodies.length === 14, `${bodies.length}`);
 const lastAssistant = bodies.filter((b) => roleOf(b) === "assistant").pop();
 ok("lastAssistant is the newest reply, not the composer",
-   lastAssistant.textContent === "Still just a quick one!", lastAssistant.textContent);
+   lastAssistant.textContent === "ZeroScript Free is a revolutionary open-",
+   lastAssistant.textContent);
 
 // ── DOM order is chronological here (NOT reversed like /text/direct) ───────
-ok("first turn is the oldest", bodies[0].textContent === "Oo");
+ok("first turn is the oldest",
+   bodies[0].textContent === "https://github.com/hipliteidk-glitch/pot");
 
 // ── the provider file itself ───────────────────────────────────────────────
 const src = fs.readFileSync(path.join(__dirname, "providers", "arena-agent.js"), "utf8");
