@@ -1,0 +1,13 @@
+{
+    "name": "DebugBridge",
+    "version": "1.0.0",
+    "description": "Exposes Aliucord's plugin registry to Termux via file dump and local HTTP server",
+    "authors": [
+        {
+            "name": "You",
+            "id": 0
+        }
+    ],
+    "pluginClassName": "com.aliucord.plugins.DebugBridge",
+    "updateUrl": null
+}
