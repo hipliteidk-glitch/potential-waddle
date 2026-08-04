@@ -112,6 +112,26 @@
       "css": [
         "overlay.css"
       ],
+      "run_at": "document_idle",
+      "exclude_matches": [
+        "https://arena.ai/agent",
+        "https://arena.ai/agent/*"
+      ]
+    },
+    {
+      "matches": [
+        "https://arena.ai/agent",
+        "https://arena.ai/agent/*"
+      ],
+      "js": [
+        "core/config.js",
+        "core/parser.js",
+        "providers/arena-agent.js",
+        "core/main.js"
+      ],
+      "css": [
+        "overlay.css"
+      ],
       "run_at": "document_idle"
     },
     {

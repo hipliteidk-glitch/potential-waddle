@@ -530,6 +530,11 @@ const ZSProvider = (() => {
   // currentMode() returns null and the "fail open" rule would wrongly allow
   // Start on a page whose DOM this provider cannot drive at all. Check the
   // route explicitly.
+  // NOTE: providers/arena-agent.js now handles /agent, and the manifest
+  // excludes this file from that route - so in practice this never fires.
+  // It is kept as a safety net in case the exclude_matches is ever dropped:
+  // this provider's selectors (ol.flex-col-reverse, bare .prose) are wrong
+  // there, and a bare .prose matches the TipTap composer itself.
   const onAgentRoute = () => /^\/agent(\/|$)/.test(location.pathname);
   function currentMode() {
     for (const c of document.querySelectorAll('button[role="combobox"]')) {
