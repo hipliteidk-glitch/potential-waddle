@@ -179,6 +179,40 @@ ok("provider exports the interface the core needs",
   ok("provider de-duplicates nested wrappers", src2.includes("o.contains(w)"));
 }
 
+// ── streaming detection with no site signal ────────────────────────────────
+// Confirmed live: the /agent DOM is IDENTICAL mid-generation - no stop button,
+// no streaming marker - so growth is the only signal. The turn wrapper is
+// inserted BEFORE any text, so a single short idle window declared an EMPTY
+// turn finished, which reads as "did not respond in time".
+{
+  const FIRST_TOKEN_MS = 45000, IDLE_MS = 4000;
+  let _max = -1, _at = 0, _item = null, _born = 0;
+  const growing = (el, len, now) => {
+    if (el !== _item) { _item = el; _max = len; _at = now; _born = now; return true; }
+    if (len > _max) { _max = len; _at = now; return true; }
+    if (_max <= 0) return now - _born < FIRST_TOKEN_MS;
+    return now - _at < IDLE_MS;
+  };
+
+  const slow = {};
+  growing(slow, 0, 0);
+  ok("an empty new turn is generating", growing(slow, 0, 100));
+  ok("still generating at 3s with no text yet", growing(slow, 0, 3000));
+  ok("still generating at 30s with no text yet", growing(slow, 0, 30000));
+  ok("gives up after the first-token budget", !growing(slow, 0, FIRST_TOKEN_MS + 1000));
+
+  const norm = {};
+  growing(norm, 0, 0);
+  ok("generating while text grows", growing(norm, 40, 1000));
+  ok("still generating during a short stall", growing(norm, 40, 3000));
+  ok("finished after the idle window", !growing(norm, 40, 8000));
+
+  const src3 = fs.readFileSync(path.join(__dirname, "providers", "arena-agent.js"), "utf8");
+  ok("provider has a separate first-token budget", src3.includes("FIRST_TOKEN_MS"));
+  ok("provider documents that the DOM is identical mid-generation",
+     /IDENTICAL mid-generation/i.test(src3));
+}
+
 // ── manifest wiring: the two Arena providers must NEVER share a document ───
 // Both files declare `const ZSProvider`; loading both would throw
 // "Identifier 'ZSProvider' has already been declared" and neither would run.

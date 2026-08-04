@@ -157,7 +157,22 @@ const ZSProvider = (() => {
     return buttonsByAria(S.stopAria).find((b) => b !== send) || null;
   };
 
-  let _max = -1, _at = 0, _item = null;
+  // Streaming detection with NO reliable site signal.
+  // Confirmed live: the /agent DOM looks IDENTICAL mid-generation - no stop
+  // button appears and no streaming marker is added - so growth of the reply
+  // text is the only thing to go on.
+  //
+  // Two windows, because one is not enough:
+  //  - FIRST_TOKEN_MS: an assistant wrapper is inserted BEFORE the model writes
+  //    anything, and Arena may spend seconds on a "Thought for N seconds" pass
+  //    and on rendering a widget. A single short idle window declared an EMPTY
+  //    turn finished (verified by replay: at 3s with 0 chars the old code said
+  //    "done"), which is exactly the "did not respond in time" / truncated-read
+  //    failure mode. While the turn is still empty we keep waiting much longer.
+  //  - IDLE_MS: once text HAS appeared, a shorter stall means finished.
+  const FIRST_TOKEN_MS = 45000;
+  const IDLE_MS = 4000;
+  let _max = -1, _at = 0, _item = null, _born = 0;
   function streamLen(item) {
     const el = item === undefined ? lastAssistant() : item;
     return (el && el.textContent ? el.textContent.length : 0);
@@ -166,9 +181,11 @@ const ZSProvider = (() => {
     const el = lastAssistant();
     const len = streamLen(el);
     const now = Date.now();
-    if (el !== _item) { _item = el; _max = len; _at = now; return true; }
+    if (el !== _item) { _item = el; _max = len; _at = now; _born = now; return true; }
     if (len > _max) { _max = len; _at = now; return true; }
-    return now - _at < 2500; // recently advanced
+    // Nothing written yet: give the model its full first-token budget.
+    if (_max <= 0) return now - _born < FIRST_TOKEN_MS;
+    return now - _at < IDLE_MS;
   }
   const isGenerating = () => !!stopButton() || growing();
   const isHardGenerating = () => !!stopButton();
