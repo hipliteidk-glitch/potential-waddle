@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "ZeroScript Free \u00d7 Roblox Studio Agent",
   "version": "1.4.9",
-  "description": "Turn DeepSeek, Gemini, Kimi, GLM, Qwen, Arena or Meta AI into a Roblox Studio agent that drives Studio through a local bridge.",
+  "description": "Turn DeepSeek, Gemini, Kimi, GLM, Qwen, Arena, Dola or Meta AI into a Roblox Studio agent that drives Studio through a local bridge.",
   "permissions": [
     "storage"
   ],
@@ -17,6 +17,8 @@
     "https://arena.ai/*",
     "https://www.meta.ai/*",
     "https://meta.ai/*",
+    "https://www.dola.com/*",
+    "https://dola.com/*",
     "http://127.0.0.1/*",
     "ws://127.0.0.1/*"
   ],
@@ -175,6 +177,23 @@
         "core/config.js",
         "core/parser.js",
         "providers/qwen.js",
+        "core/selftest.js",
+        "core/main.js"
+      ],
+      "css": [
+        "overlay.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.dola.com/*",
+        "https://dola.com/*"
+      ],
+      "js": [
+        "core/config.js",
+        "core/parser.js",
+        "providers/dola.js",
         "core/selftest.js",
         "core/main.js"
       ],
