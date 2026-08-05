@@ -166,7 +166,44 @@ const ZSProvider = (() => {
   const chipAnchor = () => lastAssistant();
   const chipAppend = true;
   const chipAtItemLevel = false;
-  const findToolBlockSpot = () => lastAssistant();
+  // Where to place the tool chip, and which node to HIDE behind it.
+  //
+  // CONTRACT: return {parent, ref} or null - NOT an element. Returning the turn
+  // element made core/main.js do spot.parent.insertBefore(...) with
+  // spot.parent === undefined, which threw
+  //   "Cannot read properties of undefined (reading 'insertBefore')"
+  // and aborted startup AFTER the model had already written a valid command
+  // (seen live 2026-08-05).
+  //
+  // Mirrors the Arena provider: find the code block holding the command, mark
+  // it hidden, and return its position so the chip replaces it visually.
+  const CMD_SHAPE = /\{\s*["']command["']\s*:/;
+  function findToolBlockSpot(item /*, chip */) {
+    if (!item || !item.querySelectorAll) return null;
+    let spot = null;
+    // 1. A real code block containing the command.
+    item.querySelectorAll("pre").forEach((pre) => {
+      if (spot || pre.closest(".zs-chip")) return;
+      if (CMD_SHAPE.test(txt(pre))) {
+        pre.classList.add("zs-tool-hide");
+        item.classList.add("zs-cmd-mask");
+        if (pre.parentElement) spot = { parent: pre.parentElement, ref: pre };
+      }
+    });
+    if (spot) return spot;
+    // 2. A bare block with an inline command and no <pre> inside.
+    const body = item.querySelector('[class*="flex-col"]') || item;
+    [...(body.children || [])].forEach((el) => {
+      if (spot || el.classList.contains("zs-chip") || el.querySelector("pre")) return;
+      const t = txt(el);
+      if (t.length < 600 && CMD_SHAPE.test(t)) {
+        el.classList.add("zs-tool-hide");
+        item.classList.add("zs-cmd-mask");
+        if (el.parentElement) spot = { parent: el.parentElement, ref: el };
+      }
+    });
+    return spot;
+  }
 
   function setInputLock(on, msg) {
     const e = getEditor();

@@ -327,7 +327,38 @@ const ZSProvider = (() => {
   const chipAnchor = () => lastAssistant();
   const chipAppend = true;
   const chipAtItemLevel = false;
-  const findToolBlockSpot = () => lastAssistant();
+  // Where the tool chip goes, and which node it hides.
+  //
+  // CONTRACT: {parent, ref} or null - NOT an element. Returning the turn made
+  // core/main.js call spot.parent.insertBefore(...) with spot.parent undefined:
+  // "Cannot read properties of undefined (reading 'insertBefore')", killing
+  // startup right after the model wrote a valid command. Found on Dola and
+  // present here identically (the same line was copied), so fixed in both.
+  const CMD_SHAPE = /\{\s*["']command["']\s*:/;
+  function findToolBlockSpot(item /*, chip */) {
+    if (!item || !item.querySelectorAll) return null;
+    let spot = null;
+    item.querySelectorAll("pre").forEach((pre) => {
+      if (spot || pre.closest(".zs-chip")) return;
+      if (CMD_SHAPE.test(pre.textContent || "")) {
+        pre.classList.add("zs-tool-hide");
+        item.classList.add("zs-cmd-mask");
+        if (pre.parentElement) spot = { parent: pre.parentElement, ref: pre };
+      }
+    });
+    if (spot) return spot;
+    const body = item.querySelector(".prose") || item;
+    [...(body.children || [])].forEach((el) => {
+      if (spot || el.classList.contains("zs-chip") || el.querySelector("pre")) return;
+      const t = el.textContent || "";
+      if (t.length < 600 && CMD_SHAPE.test(t)) {
+        el.classList.add("zs-tool-hide");
+        item.classList.add("zs-cmd-mask");
+        if (el.parentElement) spot = { parent: el.parentElement, ref: el };
+      }
+    });
+    return spot;
+  }
 
   function setInputLock(on, msg) {
     const e = getEditor();

@@ -206,5 +206,39 @@ ok("a usable composer means logged in, even with a Log In control present",
      /log in/i.test(mk(LOGIN).modeWarning()));
 }
 
+// ── findToolBlockSpot must return {parent, ref} or null ────────────────────
+// It returned the turn ELEMENT, so core/main.js ran
+// spot.parent.insertBefore(...) with spot.parent undefined and startup died
+// with "Cannot read properties of undefined (reading 'insertBefore')" - AFTER
+// the model had written a perfectly good command.
+{
+  const withCmd = items[3]; // the turn holding <pre>{"command":"list_commands"}</pre>
+  const spot = P.findToolBlockSpot(withCmd);
+  ok("findToolBlockSpot finds the command block", !!spot, String(spot));
+  ok("it returns a {parent, ref} pair, not an element",
+     !!spot && !!spot.parent && !!spot.ref && spot.parent.nodeType === 1,
+     JSON.stringify(Object.keys(spot || {})));
+  ok("parent really contains ref (insertBefore would succeed)",
+     !!spot && spot.parent.contains(spot.ref));
+  ok("the command block is marked hidden",
+     !!spot && spot.ref.classList.contains("zs-tool-hide"));
+  ok("a turn with no command returns null",
+     P.findToolBlockSpot(items[0]) === null, String(P.findToolBlockSpot(items[0])));
+  ok("a missing item is handled", P.findToolBlockSpot(null) === null);
+}
+
+// EVERY provider must honour the same contract - this is a core call site.
+{
+  const fs2 = require("fs");
+  const dir = path.join(__dirname, "providers");
+  for (const f of fs2.readdirSync(dir).filter((x) => x.endsWith(".js"))) {
+    const src2 = fs2.readFileSync(path.join(dir, f), "utf8");
+    if (!/findToolBlockSpot/.test(src2)) continue;
+    // A one-line arrow returning a bare element is the shape that broke Dola.
+    const bad = /findToolBlockSpot\s*=\s*\(\s*\)\s*=>\s*(?!null)[a-zA-Z_$][\w$]*\(/.test(src2);
+    ok(`${f}: findToolBlockSpot does not return a bare element`, !bad);
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
