@@ -154,8 +154,34 @@ const ZSProvider = (() => {
     if (_max <= 0) return now - _born < FIRST_TOKEN_MS;
     return now - _at < IDLE_MS;
   }
-  const isGenerating = () => !!stopButton() || growing();
-  const isHardGenerating = () => !!stopButton();
+  // Dola exposes a REAL streaming flag - use it before guessing.
+  //
+  // Every message body carries data-streaming="true|false"
+  // (div.container-*.md-box-root). The growth heuristic below was written
+  // before that was known, and it is wrong for a SHORT reply: "Got it - I'm
+  // fetching the full command reference..." finishes inside the idle window,
+  // so growing() reported "still generating", the core kept waiting, and the
+  // loop hit its timeout with "Dola did not respond in time" even though the
+  // reply was complete and its command had parsed (seen live 2026-08-05: chip
+  // stuck on "not run", row left data-zs="idle").
+  //
+  // Returns true/false from the attribute when present, else null so the
+  // caller falls back to the old behaviour.
+  const streamingFlag = () => {
+    const el = lastAssistant();
+    if (!el || !el.querySelector) return null;
+    const nodes = [...el.querySelectorAll("[data-streaming]")];
+    if (!nodes.length) return null;
+    return nodes.some((n) => n.getAttribute("data-streaming") === "true");
+  };
+
+  const isGenerating = () => {
+    if (stopButton()) return true;
+    const flag = streamingFlag();
+    if (flag !== null) return flag;
+    return growing();
+  };
+  const isHardGenerating = () => !!stopButton() || streamingFlag() === true;
   const isBusyNow = () => isGenerating();
 
   // ── composer ──────────────────────────────────────────────────────────────

@@ -275,5 +275,69 @@ ok("a usable composer means logged in, even with a Log In control present",
      ZSParse.parseToolCalls(read).length === 1);
 }
 
+// ── data-streaming decides "is it still generating", not text growth ───────
+// Live failure: a SHORT reply ("Got it - I'm fetching the full command
+// reference...") finished inside the growth heuristic's idle window, so
+// isGenerating() stayed true, the core waited, and the loop died with "Dola
+// did not respond in time" - while the command had already parsed and the
+// chip sat on "not run".
+{
+  const mkStream = (flag) => {
+    const d = new JSDOM(`<!doctype html><html><body>
+     <div class="scroller v_list_scroller-x"><div class="list_items">
+      <div class=" v_list_row" data-observe-row="block_1">
+        <div class="flex flex-row w-full group"><div class="flex flex-col flex-grow">
+          <div data-streaming="${flag}" class="container-qX9Csx md-box-root">
+            <pre><code>{"command":"list_commands"}</code></pre>
+            <p>Got it - fetching the command reference.</p>
+          </div>
+        </div></div>
+      </div>
+     </div></div></body></html>`, { url: "https://www.dola.com/chat/7" });
+    Object.defineProperty(d.window.HTMLElement.prototype, "getClientRects",
+      { value() { return [{ width: 200, height: 30 }]; } });
+    const sb = {
+      window: d.window, document: d.window.document, location: d.window.location,
+      navigator: d.window.navigator, setTimeout, clearTimeout, console, Date,
+      Event: d.window.Event, InputEvent: d.window.InputEvent,
+      KeyboardEvent: d.window.KeyboardEvent,
+    };
+    vm.createContext(sb);
+    vm.runInContext(providerSrc + "\n;globalThis.__P = ZSProvider;", sb);
+    return sb.__P;
+  };
+
+  const done = mkStream("false");
+  ok("a finished reply is NOT generating (data-streaming=false)",
+     done.isGenerating() === false, String(done.isGenerating()));
+  ok("and its command still parses",
+     ZSParse.parseToolCalls(done.readAssistant()).length === 1);
+
+  const live = mkStream("true");
+  ok("a streaming reply IS generating (data-streaming=true)",
+     live.isGenerating() === true, String(live.isGenerating()));
+  ok("isHardGenerating agrees while streaming", live.isHardGenerating() === true);
+
+  // No flag at all -> must fall back to the growth heuristic, not crash.
+  const d2 = new JSDOM(`<!doctype html><html><body>
+    <div class="scroller v_list_scroller-x"><div class="list_items">
+     <div class=" v_list_row" data-observe-row="b1">
+      <div class="flex flex-row w-full group"><div class="flex flex-col flex-grow">
+        <p>plain reply, no streaming attribute</p></div></div>
+     </div></div></div></body></html>`, { url: "https://www.dola.com/chat/8" });
+  Object.defineProperty(d2.window.HTMLElement.prototype, "getClientRects",
+    { value() { return [{ width: 200, height: 30 }]; } });
+  const sb2 = {
+    window: d2.window, document: d2.window.document, location: d2.window.location,
+    navigator: d2.window.navigator, setTimeout, clearTimeout, console, Date,
+    Event: d2.window.Event, InputEvent: d2.window.InputEvent,
+    KeyboardEvent: d2.window.KeyboardEvent,
+  };
+  vm.createContext(sb2);
+  vm.runInContext(providerSrc + "\n;globalThis.__P = ZSProvider;", sb2);
+  ok("no data-streaming falls back to the heuristic without throwing",
+     typeof sb2.__P.isGenerating() === "boolean");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

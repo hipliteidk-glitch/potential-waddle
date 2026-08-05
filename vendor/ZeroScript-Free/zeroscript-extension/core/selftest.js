@@ -118,7 +118,18 @@ const ZSSelfTest = (() => {
   }
 
   const safe = (fn) => (x) => { try { return !!fn(x); } catch { return false; } };
-  const text = (el) => (el && el.textContent ? el.textContent.trim() : "");
+  // Read through the PROVIDER, not raw textContent. Reading raw meant the
+  // report showed ZeroScript's own chip glued to the reply
+  // ("...jsonlist_commandsnot run{...}") even after the provider was fixed to
+  // filter it - so the diagnostic misrepresented what the model actually sees.
+  const text = (el) => {
+    if (!el) return "";
+    const p = P();
+    if (p && typeof p.itemText === "function") {
+      try { return (p.itemText(el) || "").trim(); } catch { /* fall through */ }
+    }
+    return (el.textContent || "").trim();
+  };
   const preview = (s) => (s.length > 90 ? s.slice(0, 90) + "…" : s) || "(empty)";
   const strip = (s) => s.replace(/<[^>]+>/g, "");
   const tagOf = (el) => el.tagName + (el.className ? "." +
