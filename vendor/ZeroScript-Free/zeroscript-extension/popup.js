@@ -116,3 +116,32 @@ document.getElementById("ep-reset").addEventListener("click", () => {
       if (r && r.ok) { epUrl.value = r.url; epToken.value = ""; showWarn(""); refresh(); }
     });
 });
+
+// ── Self-test ──────────────────────────────────────────────────────────────
+// Runs the REAL provider against the REAL page and copies a report + a
+// replayable DOM fixture. This is what makes a provider verifiable for a
+// developer who cannot reach the site: paste the result into an issue and the
+// fixture can be replayed offline as a regression test.
+document.getElementById("selftest").addEventListener("click", () => {
+  const out = document.getElementById("selftest-out");
+  out.style.display = "";
+  out.textContent = "Running…";
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tab = tabs && tabs[0];
+    if (!tab) { out.textContent = "No active tab."; return; }
+    chrome.tabs.sendMessage(tab.id, { type: "zs-selftest" }, (r) => {
+      if (chrome.runtime.lastError || !r) {
+        out.textContent = "ZeroScript is not running on this tab.\n" +
+          "Open a supported AI chat first, then try again.";
+        return;
+      }
+      if (!r.ok) { out.textContent = "Self-test error: " + r.error; return; }
+      const full = r.text + "\n\n--- FIXTURE (attach this to an issue) ---\n" +
+        JSON.stringify(r.report.fixture, null, 2);
+      out.textContent = r.text + "\n\n(full report + fixture copied to clipboard)";
+      navigator.clipboard.writeText(full).catch(() => {
+        out.textContent = r.text + "\n\n(could not copy - select and copy manually)";
+      });
+    });
+  });
+});

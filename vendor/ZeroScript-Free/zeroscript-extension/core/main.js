@@ -3572,6 +3572,21 @@
     }
   });
 
+  // Self-test: run the REAL provider against the REAL page and hand back what
+  // it actually sees, plus a replayable DOM fixture. This is the only way to
+  // verify a provider against a site a developer cannot reach; see
+  // core/selftest.js. Uses its own listener because it must reply.
+  chrome.runtime.onMessage.addListener((msg, _s, sendResponse) => {
+    if (!msg || msg.type !== "zs-selftest") return;
+    try {
+      const r = ZSSelfTest.report();
+      sendResponse({ ok: true, report: r, text: ZSSelfTest.asText(r) });
+    } catch (e) {
+      sendResponse({ ok: false, error: String((e && e.message) || e) });
+    }
+    return true;
+  });
+
   bg({ type: "status" }).then((s) => s && ui.setStatus(s));
   setInterval(() => bg({ type: "status" }).then((s) => s && ui.setStatus(s)), 5000);
 

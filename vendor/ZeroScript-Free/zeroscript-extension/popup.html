@@ -29,6 +29,11 @@
     <button class="ghost" id="restart">⟳ Restart Roblox server</button>
     <button class="ghost" id="settings">⚙ Settings</button>
     <button class="ghost" id="endpoint-toggle">🔌 Bridge endpoint</button>
+    <button class="ghost" id="selftest">🧪 Run self-test &amp; copy report</button>
+    <div class="row" id="selftest-out" style="display:none; white-space:pre-wrap;
+         font-family:ui-monospace,monospace; font-size:10px; max-height:150px;
+         overflow:auto; background:rgba(255,255,255,.05); padding:6px;
+         border-radius:6px; margin-top:6px"></div>
     <div id="endpoint-panel" style="display:none; margin-top:8px; padding:8px; background:rgba(255,255,255,0.05); border-radius:8px;">
       <div class="row" style="opacity:.7; margin-top:0">Leave as the default unless your bridge runs on another machine.</div>
       <input id="ep-url" type="text" spellcheck="false" placeholder="ws://127.0.0.1:17613"

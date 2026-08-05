@@ -46,6 +46,7 @@
         "core/config.js",
         "core/parser.js",
         "providers/deepseek.js",
+        "core/selftest.js",
         "core/main.js"
       ],
       "css": [
@@ -61,6 +62,7 @@
         "core/config.js",
         "core/parser.js",
         "providers/gemini.js",
+        "core/selftest.js",
         "core/main.js"
       ],
       "css": [
@@ -77,6 +79,7 @@
         "core/config.js",
         "core/parser.js",
         "providers/kimi.js",
+        "core/selftest.js",
         "core/main.js"
       ],
       "css": [
@@ -92,6 +95,7 @@
         "core/config.js",
         "core/parser.js",
         "providers/glm.js",
+        "core/selftest.js",
         "core/main.js"
       ],
       "css": [
@@ -107,6 +111,7 @@
         "core/config.js",
         "core/parser.js",
         "providers/arena.js",
+        "core/selftest.js",
         "core/main.js"
       ],
       "css": [
@@ -127,6 +132,7 @@
         "core/config.js",
         "core/parser.js",
         "providers/arena-agent.js",
+        "core/selftest.js",
         "core/main.js"
       ],
       "css": [
@@ -143,6 +149,7 @@
         "core/config.js",
         "core/parser.js",
         "providers/meta.js",
+        "core/selftest.js",
         "core/main.js"
       ],
       "css": [
@@ -168,6 +175,7 @@
         "core/config.js",
         "core/parser.js",
         "providers/qwen.js",
+        "core/selftest.js",
         "core/main.js"
       ],
       "css": [

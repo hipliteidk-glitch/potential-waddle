@@ -66,3 +66,45 @@ handles them:
 The third test reproduces the actual live regression: it asks the model for a
 JSON code block and asserts the provider's turn query sees it — the failure
 that produced "Arena Agent did not respond in time".
+
+## Self-test: making the extension testable from anywhere
+
+The providers are DOM reverse-engineering against sites a developer often
+cannot reach. Every provider bug this session followed the same slow loop: hit
+a failure, paste a screenshot, guess a fix, repeat. Unit tests that
+re-implement a provider's logic cannot catch a selector that matches nothing on
+the real page.
+
+The extension can now report that itself.
+
+**Capture (on the machine with the site open)**
+
+1. Open the AI chat where it misbehaves.
+2. Click the ZeroScript icon → **🧪 Run self-test & copy report**.
+3. A readable PASS/FAIL report appears; the full report *plus a replayable DOM
+   fixture* is copied to the clipboard.
+
+The report answers the questions that actually matter: is the provider loaded,
+is the composer found, how many turns does `allItems()` see, is the composer
+being misread as a reply, does the newest reply parse into a command.
+
+**Replay (offline, forever)**
+
+Save the `FIXTURE` section as `fixtures/<name>.json`, then:
+
+```bash
+node test-fixture-replay.js                       # all fixtures
+node test-fixture-replay.js fixtures/mine.json    # one
+```
+
+This rebuilds the captured markup in jsdom, loads the **real** provider file
+into it, and asserts it still finds the turns and parses the command.
+
+**Privacy:** the fixture keeps only the last 8 turns, truncates text to ~160
+characters, and strips the composer's contents, so it is safe to paste into an
+issue. Nothing is transmitted anywhere - it goes to your clipboard.
+
+**Mutation-checked:** reintroducing the real turn-anchoring bug
+(`div.px-3` instead of `div.flex.flex-col.gap-2`) makes the replayed fixture
+fail 3 assertions, including "a command in the captured reply is parsed" - the
+exact symptom behind *"Arena Agent did not respond in time"*.
