@@ -43,7 +43,13 @@ const ZSProvider = (() => {
   const S = {
     row: "div.v_list_row",
     rowId: "data-observe-row",
-    spacer: '[class*="v_list_bottom_indicator"]',
+    // Virtualiser spacers. There is a TOP one as well as a bottom one
+    // (v_list_top_indicator-*, v_list_bottom_indicator-*), and both are
+    // .v_list_row with no data-observe-row. Matching only the bottom one left
+    // the top spacer relying on the id check alone; match any *_indicator so
+    // either guard is sufficient on its own.
+    spacer: '[class*="v_list_top_indicator"], [class*="v_list_bottom_indicator"],'
+          + ' [class*="top-item-"], [class*="bottom-item-"]',
     editor: "textarea.semi-input-textarea",
     scroller: '[class*="v_list_scroller"]',
     // Dola's UI is English/Chinese; match both for the send/stop controls.

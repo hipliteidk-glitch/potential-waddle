@@ -38,6 +38,12 @@ const row = (id, flexCls, text) => `
 
 const HTML = `<!doctype html><html><body>
 <div class="scroller v_list_scroller-BxcoIX"><div class="scroller_content"><div class="list_items">
+  <!-- TOP spacer, seen live. Given an id so ONLY the indicator check excludes
+       it - otherwise the two guards mask each other. -->
+  <div class="v_list_row" data-observe-row="block_spacer_top" style="width:100%;z-index:1">
+    <div><div class="v_list_top_indicator-OESqxW"></div><div class="${INNER}">
+      <div class="w-full top-item-bAlX0F"></div></div></div>
+  </div>
   ${row("block_1275552801841681", USER_FLEX, "O")}
   ${row("block_1275552801841682", ASSIST_FLEX, 'It looks like you only typed "O" - did you mean to send something?')}
   ${row("block_1276056118724113", USER_FLEX, "run list_commands please")}
@@ -98,6 +104,8 @@ ok("allItems() finds the 4 real turns (spacer excluded)", items.length === 4,
    `found ${items.length}`);
 ok("the bottom spacer is not a turn",
    !items.some((i) => i.querySelector('[class*="v_list_bottom_indicator"]')));
+ok("the TOP spacer is not a turn (it carries an id, so only the indicator check saves us)",
+   !items.some((i) => i.querySelector('[class*="v_list_top_indicator"]')));
 
 // ── the role marker (on a DESCENDANT, not an ancestor) ─────────────────────
 const users = items.filter(P.isUserItem);
