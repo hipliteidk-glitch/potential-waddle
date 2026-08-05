@@ -121,3 +121,28 @@ python3 test_remote_auth.py
 Ten assertions covering both startup guards, rejection of missing and wrong
 tokens, a correct token running a real tool, `$PORT` handling, and that the
 loopback default still needs no token.
+
+## Checking it over HTTP
+
+The bridge answers plain HTTP on the **same port** as the WebSocket, so you can
+confirm it is alive by opening a URL - no extension, no tooling:
+
+| Path | Auth | Purpose |
+| --- | --- | --- |
+| `/` | token | Human-readable status page: target, tool count, per-server state |
+| `/status` | token | The same as JSON |
+| `/healthz` | **none** | Liveness only (`{"status":"ok"}`), for a PaaS probe |
+
+```bash
+curl http://127.0.0.1:17613/healthz
+curl "https://your-app.up.railway.app/status?token=YOUR_TOKEN"
+```
+
+`/healthz` is deliberately unauthenticated and returns no detail, because a
+platform health check cannot present a token. Everything else requires the
+token whenever one is set. `railway.json` points `healthcheckPath` at it, so a
+deploy that fails to start is reported by Railway instead of looking healthy.
+
+Sharing the port means the HTTP handler must never swallow a WebSocket
+upgrade; `test_http.py` asserts the extension still connects and can run a tool
+while HTTP is being served.
