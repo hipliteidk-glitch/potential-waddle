@@ -262,3 +262,22 @@ never read and the request would hang. Hence `?data=<base64url>`.
 
 Remote bridges require the token (`&token=…`); `/healthz` never does, so a PaaS
 can poll it.
+
+## Switching a ZIP install to a git install
+
+Self-update needs a git clone. To convert without losing anything:
+
+```bash
+cd ~ && mv zs-app zs-app.old
+git clone -b arena/019f97f5-potential-waddle \
+  https://github.com/hipliteidk-glitch/potential-waddle zs-app
+cd zs-app/vendor/ZeroScript-Free
+cp config.termux.json config.json
+python3 merge-config.py ~/zs-app.old/vendor/ZeroScript-Free/config.json   # optional
+bash start-termux.sh -b
+```
+
+The old install stays at `~/zs-app.old`. `merge-config.py` copies across any
+tools you added by hand — matched by name, so shipped tools are never
+overwritten and running it twice changes nothing. It backs up `config.json`
+first.
