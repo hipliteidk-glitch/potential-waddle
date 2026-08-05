@@ -281,3 +281,26 @@ The old install stays at `~/zs-app.old`. `merge-config.py` copies across any
 tools you added by hand — matched by name, so shipped tools are never
 overwritten and running it twice changes nothing. It backs up `config.json`
 first.
+
+## Adding support for a new AI site
+
+Providers are DOM reverse-engineering, and these sites are unreachable from a
+dev sandbox. `discover.js` collects everything a provider needs in one pass,
+instead of the several rounds of hand-written console snippets that adding
+Arena Agent required.
+
+1. Open the site with a conversation of **at least two exchanges** on screen.
+2. Open DevTools → Console, paste the whole of `discover.js`, press Enter.
+3. The report is copied to your clipboard. **Review it, then share it.**
+
+It reports the composer (textarea vs contenteditable), whether a turn list
+exists at all, the repeated container that holds messages, the last few turns
+*with their ancestor chains* (the role marker is usually on an ancestor), and
+the send/stop buttons.
+
+It also flags the trap that broke Arena Agent: `composerSharesTurnClass` — a
+composer sharing a class with turn bodies makes the extension read the user's
+own typing as a reply and loop on itself.
+
+Privacy: text is truncated to 60 characters, only the last 6 turns are
+inspected, and nothing is transmitted — it goes to your clipboard.
