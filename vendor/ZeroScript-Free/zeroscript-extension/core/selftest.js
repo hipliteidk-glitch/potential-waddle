@@ -55,8 +55,16 @@ const ZSSelfTest = (() => {
       else if (hidden === anyTip && anyTip > 0) why += " -> composer exists but is HIDDEN";
       else why += " -> composer exists but the selector missed it";
     }
+    // "writable" must work for BOTH composer shapes. A <textarea> never has
+    // contenteditable, so the old check reported writable=false for a perfectly
+    // usable Dola composer - alarming and wrong.
+    const writable = editor
+      ? (editor.tagName === "TEXTAREA"
+          ? !editor.disabled && !editor.readOnly
+          : editor.getAttribute("contenteditable") === "true")
+      : false;
     add("getEditor() finds the composer", !!editor,
-        editor ? `${tagOf(editor)} (writable=${editor.getAttribute("contenteditable") === "true"})`
+        editor ? `${tagOf(editor)} (writable=${writable})`
                : "null - the bar cannot anchor and sending is impossible" + why);
 
     // Turn collection is where every failure so far has lived.

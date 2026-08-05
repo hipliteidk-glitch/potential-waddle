@@ -60,7 +60,28 @@ const ZSProvider = (() => {
   };
 
   const vis = (e) => !!(e && e.getClientRects && e.getClientRects().length);
-  const txt = (e) => (e && e.textContent ? e.textContent : "");
+
+  // Text of a subtree, SKIPPING ZeroScript's own chip.
+  //
+  // A plain .textContent read includes the chip we injected, so readAssistant()
+  // came back as 'jsonlist_commandsnot run{"command":...}' - the chip's label
+  // and "not run" status glued to the front of the model's reply (seen live
+  // 2026-08-05). That feeds our own UI text back to the model and can make a
+  // command look malformed. Every other provider does this; dola.js did not.
+  function textWithout(root, excludeSel) {
+    if (!root) return "";
+    const skip = ".zs-chip" + (excludeSel ? ", " + excludeSel : "");
+    let t = "";
+    const walk = (n) => {
+      if (n.nodeType === 3) { t += n.nodeValue; return; }
+      if (n.nodeType !== 1) return;
+      if (n.matches && n.matches(skip)) return;
+      for (const c of n.childNodes) walk(c);
+    };
+    walk(root);
+    return t;
+  }
+  const txt = (e) => textWithout(e);
 
   // ── turns ─────────────────────────────────────────────────────────────────
   // A row counts only if it carries the id attribute: that excludes the

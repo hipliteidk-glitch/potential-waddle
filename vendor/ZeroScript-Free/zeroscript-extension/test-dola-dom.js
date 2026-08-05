@@ -240,5 +240,40 @@ ok("a usable composer means logged in, even with a Log In control present",
   }
 }
 
+// ── the chip must never be read back as model output ───────────────────────
+// Live: readAssistant() returned 'jsonlist_commandsnot run{"command":...}'.
+// The prefix is ZeroScript's OWN chip (its label plus the "not run" status),
+// glued to the reply because itemText used plain .textContent. That feeds our
+// UI text back to the model and can make a command look malformed.
+{
+  const d = new JSDOM(`<!doctype html><html><body>
+   <div class="scroller v_list_scroller-x"><div class="list_items">
+    <div class=" v_list_row" data-observe-row="block_1">
+      <div class="flex flex-row w-full group">
+        <div class="zs-chip cat-tool"><span class="zs-chip-tx">json list_commands</span><span>not run</span></div>
+        <div class="flex flex-col flex-grow"><pre><code>{"command":"list_commands"}</code></pre>
+        <p>Got it - fetching the full command list.</p></div>
+      </div>
+    </div>
+   </div></div></body></html>`, { url: "https://www.dola.com/chat/9" });
+  Object.defineProperty(d.window.HTMLElement.prototype, "getClientRects",
+    { value() { return [{ width: 200, height: 30 }]; } });
+  const sb = {
+    window: d.window, document: d.window.document, location: d.window.location,
+    navigator: d.window.navigator, setTimeout, clearTimeout, console, Date,
+    Event: d.window.Event, InputEvent: d.window.InputEvent,
+    KeyboardEvent: d.window.KeyboardEvent,
+  };
+  vm.createContext(sb);
+  vm.runInContext(providerSrc + "\n;globalThis.__P = ZSProvider;", sb);
+  const PC = sb.__P;
+  const read = PC.readAssistant();
+  ok("the chip's label is not read back", !/json list_commands/.test(read), JSON.stringify(read.slice(0, 60)));
+  ok("the chip's status is not read back", !/not run/.test(read), JSON.stringify(read.slice(0, 60)));
+  ok("the model's own text IS read", /Got it/.test(read), JSON.stringify(read.slice(0, 60)));
+  ok("the command still survives for the parser",
+     ZSParse.parseToolCalls(read).length === 1);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
