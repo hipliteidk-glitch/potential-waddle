@@ -278,9 +278,28 @@ const ZSProvider = (() => {
   };
   const chatIsEmpty = () => allItems().length === 0;
   const isFreshChat = () => chatIsEmpty() && !!getEditor();
+  // The container the bar is anchored to. MUST be OUTSIDE the contenteditable:
+  // closest() starts AT the element, so closest("form, div") returned the
+  // editor itself (it is a DIV) and the bar was rendered INSIDE the composer.
+  // Arena then treated the bar's own text as the user's draft - the composer
+  // filled with "Agent Mode / Drop files / Connect your GitHub" and there was
+  // nothing to click (seen live 2026-08-05).
+  //
+  // Walk UP from the editor's parent to the composer's outer wrapper, and
+  // never return a node that contains the editor's editable region only.
   const composerFrame = () => {
     const e = getEditor();
-    return e ? e.closest("form, div") || e.parentElement : null;
+    if (!e) return null;
+    let n = e.parentElement;
+    // Prefer a real form, else the first ancestor that is NOT part of the
+    // editable subtree and has some width to host a bar.
+    for (let i = 0; i < 5 && n && n.tagName !== "BODY"; i++) {
+      if (n.tagName === "FORM") return n;
+      if (!n.isContentEditable && !n.closest('[contenteditable="true"]')) return n;
+      n = n.parentElement;
+    }
+    return e.parentElement && !e.parentElement.isContentEditable
+      ? e.parentElement : (e.parentElement || null);
   };
   const barAnchor = () => composerFrame();
   const chipAnchor = () => lastAssistant();

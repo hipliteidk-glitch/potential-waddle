@@ -218,6 +218,23 @@ ok("chatIsEmpty() is false with turns present", P.chatIsEmpty() === false);
   ok("and reports it as writable", PF.editorWritable() === true);
 }
 
+// ── the bar must never be anchored INSIDE the composer ─────────────────────
+// Seen live: the bar rendered inside the contenteditable, so Arena treated its
+// text as the user's draft ("Agent Mode / Drop files / Connect your GitHub"
+// appeared in the composer) and Start could not be clicked. Cause:
+// closest("form, div") starts AT the element and the editor IS a div.
+{
+  const frame = P.composerFrame();
+  ok("composerFrame() returns something", !!frame);
+  const editor = P.getEditor();
+  ok("the anchor is NOT the editor itself", frame !== editor);
+  ok("the anchor does not sit inside the editable region",
+     !!frame && !frame.closest('[contenteditable="true"]'));
+  ok("the anchor CONTAINS the editor (so the bar sits with the composer)",
+     !!frame && !!editor && frame.contains(editor));
+  ok("barAnchor() agrees with composerFrame()", P.barAnchor() === frame);
+}
+
 // ── an empty conversation ──────────────────────────────────────────────────
 const dom2 = new JSDOM(`<!doctype html><html><body>
   <div class="relative px-4 pb-4"><div class="flex flex-col gap-2">
