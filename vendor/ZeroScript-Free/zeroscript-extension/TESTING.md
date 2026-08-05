@@ -231,3 +231,34 @@ amount of reading had found — Arena inserts the assistant's turn *before* the
 first token, and the provider required content, so the opening moments of every
 reply were invisible. Fixing that naively then counted the composer as a third
 turn, which the same suite caught.
+
+## Capturing a live page over HTTP
+
+The bridge serves plain HTTP on the same port as its WebSocket, so the browser
+can hand a live page straight to it. This is what makes a provider testable
+against a site the developer cannot reach.
+
+```
+GET /healthz          liveness (no auth)
+GET /status           target, servers, tools
+GET /fixtures         what has been captured
+GET /fixture?data=..  store a capture (base64url JSON)
+```
+
+Flow:
+
+1. On the page that misbehaves, click **🧪 Run self-test** in the popup.
+2. The extension POSTs the capture to the bridge, which writes it into
+   `zeroscript-extension/fixtures/`.
+3. `node test-fixture-replay.js` replays it against the **real** provider,
+   forever.
+
+Verified end to end: a capture uploaded over HTTP appeared in `/fixtures` and
+then replayed green, including the JSON-widget reply that originally failed.
+
+Bodies are not used deliberately: the bridge's HTTP layer is the websockets
+handshake hook, which parses only the request line and headers — a POST body is
+never read and the request would hang. Hence `?data=<base64url>`.
+
+Remote bridges require the token (`&token=…`); `/healthz` never does, so a PaaS
+can poll it.

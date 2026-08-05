@@ -205,5 +205,38 @@ const ZSSelfTest = (() => {
     return lines.join("\n");
   }
 
-  return { runChecks, captureFixture, report, asText };
+  // ── upload straight to the bridge ─────────────────────────────────────────
+  // The extension can reach the AI site; the bridge and the offline test suite
+  // cannot. Sending the capture to the bridge turns a live page into a file
+  // that test-fixture-replay.js asserts against forever - which is the only
+  // way to regression-test a provider against a site the developer cannot
+  // load. Without this the user has to copy a wall of JSON out of a popup by
+  // hand, which is how the last several rounds actually went.
+  //
+  // Sent as a GET with a base64url query parameter, NOT a POST body: the
+  // websockets library parses only the request line and headers during the
+  // handshake, so a POST body is never read and the request hangs.
+  async function upload(endpoint, token) {
+    const fx = captureFixture();
+    const json = JSON.stringify(fx);
+    const b64 = btoa(unescape(encodeURIComponent(json)))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    // Derive the HTTP origin from the ws:// endpoint the bridge already uses.
+    let base = endpoint || "ws://127.0.0.1:17613";
+    base = base.replace(/^ws:/, "http:").replace(/^wss:/, "https:")
+               .replace(/\/+$/, "");
+    const url = `${base}/fixture?data=${b64}` + (token ? `&token=${encodeURIComponent(token)}` : "");
+    if (url.length > 60000) {
+      return { ok: false, error: "capture too large to upload - use the clipboard copy instead" };
+    }
+    try {
+      const res = await fetch(url, { method: "GET" });
+      const body = await res.json().catch(() => ({}));
+      return res.ok ? { ok: true, ...body } : { ok: false, error: body.error || `HTTP ${res.status}` };
+    } catch (e) {
+      return { ok: false, error: "bridge unreachable: " + String((e && e.message) || e) };
+    }
+  }
+
+  return { runChecks, captureFixture, report, asText, upload };
 })();
