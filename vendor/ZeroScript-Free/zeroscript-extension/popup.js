@@ -138,6 +138,19 @@ document.getElementById("selftest").addEventListener("click", () => {
       if (!r.ok) { out.textContent = "Self-test error: " + r.error; return; }
       const full = r.text + "\n\n--- FIXTURE (attach this to an issue) ---\n" +
         JSON.stringify(r.report.fixture, null, 2);
+      // Also hand the capture to the bridge, which writes it into fixtures/
+      // so `node test-fixture-replay.js` can assert against this exact page
+      // forever. Sent as a base64url query parameter: the bridge's HTTP layer
+      // is the websockets handshake hook, which never reads request bodies.
+      try {
+        chrome.runtime.sendMessage({ type: "save_fixture", fixture: r.report.fixture },
+          (sr) => {
+            if (sr && sr.ok && sr.saved) {
+              out.textContent += "\n\nSaved to the bridge as " + sr.saved +
+                                 " - replay with: node test-fixture-replay.js";
+            }
+          });
+      } catch {}
       out.textContent = r.text + "\n\n(full report + fixture copied to clipboard)";
       navigator.clipboard.writeText(full).catch(() => {
         out.textContent = r.text + "\n\n(could not copy - select and copy manually)";

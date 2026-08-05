@@ -166,3 +166,36 @@ string reaches the handler reliably, so that is the interface.
 ```bash
 python3 test_http_api.py    # 26 assertions against a real running bridge
 ```
+
+## Capturing a live page over HTTP
+
+The browser can reach the AI site; the bridge and this test suite cannot. The
+bridge therefore accepts captures over plain HTTP on the same port as the
+WebSocket, and writes them into `fixtures/` where the replay harness picks
+them up.
+
+```
+GET  /fixtures                  list what has been captured
+GET  /fixture?data=<base64url>  store one (the self-test's fixture JSON)
+```
+
+**Why a query parameter and not a POST body:** the bridge's HTTP layer is the
+websockets handshake hook, and `websockets.http11.Request` has no body field at
+all — its fields are `path`, `headers`, `method`, `protocol`. A POST body is
+never read, and the request simply hangs (verified). A query parameter is the
+only payload that hook can see.
+
+**The whole loop, with nothing typed by hand:**
+
+1. Click **🧪 Run self-test** in the popup on the failing page.
+2. The capture is sent to the bridge and saved, e.g.
+   `arena-agent-generating-019fd143.json`. Re-capturing the same page
+   overwrites it rather than piling up duplicates.
+3. `node test-fixture-replay.js` now asserts against that exact page, forever.
+
+Verified end to end: a live-shaped capture went in over HTTP and came back as
+5 passing assertions, including the JSON command parsing out of a code widget.
+
+`python3 test_http_fixture.py` — 14 assertions covering the happy path plus
+missing data, bad base64, a non-fixture object and a JSON array, confirming
+each is rejected with a clear error and that the bridge stays alive.

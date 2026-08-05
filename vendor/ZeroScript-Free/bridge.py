@@ -19,6 +19,7 @@
 #     Nothing ever hangs the agentic loop silently.
 # ──────────────────────────────────────────────────────────────────────────
 import asyncio
+import base64
 import hmac
 import json
 import os
@@ -1589,7 +1590,15 @@ def _client_authorized(ws):
 # ZS_BRIDGE_TOKEN exactly like the WebSocket, so a remote deploy does not leak
 # its tool list or config to anonymous callers.
 HTTP_ROUTES = ("/", "/healthz", "/health", "/status", "/favicon.ico",
-               "/tools", "/call")
+               "/tools", "/call", "/fixture", "/fixtures")
+
+# Where captures from the browser land. The extension can reach the AI site;
+# the bridge and the test suite cannot. POSTing a capture here turns a live
+# page into a file that test-fixture-replay.js can assert against forever,
+# which is the only way to regression-test a provider against a site the
+# developer cannot open.
+FIXTURE_DIR = os.path.join(HERE, "zeroscript-extension", "fixtures")
+MAX_FIXTURE_BYTES = 2 * 1024 * 1024
 
 
 def _http_status_payload():
@@ -1645,6 +1654,26 @@ def _http_authorized(request):
     return False
 
 
+def _request_query(request):
+    """The query string of an HTTP request, or ''."""
+    try:
+        return urllib.parse.urlparse(getattr(request, "path", "") or "").query
+    except Exception:
+        return ""
+
+
+def _fixture_filename(fx):
+    """A stable, filesystem-safe name derived from the capture itself, so
+    re-capturing the same page overwrites rather than piling up duplicates."""
+    prov = str(fx.get("provider") or "unknown")
+    url = str(fx.get("url") or "")
+    tail = url.rstrip("/").rsplit("/", 1)[-1][:12] if url else ""
+    gen = "generating" if fx.get("generating") else "idle"
+    raw = f"{prov}-{gen}-{tail}" if tail else f"{prov}-{gen}"
+    safe = "".join(c if (c.isalnum() or c in "-_") else "-" for c in raw).strip("-")
+    return (safe or "capture")[:60] + ".json"
+
+
 def http_process_request(connection, request):
     """Answer plain HTTP; return None for a real WebSocket upgrade."""
     try:
@@ -1671,6 +1700,60 @@ def http_process_request(connection, request):
 
         if path == "/status":
             return _http_response(200, json.dumps(_http_status_payload(), indent=2) + "\n")
+
+        # ── live capture from the browser ────────────────────────────────────
+        # GET  /fixtures  - list what has been captured
+        # POST /fixture   - store one (body = the self-test's fixture JSON)
+        if path == "/fixtures":
+            try:
+                names = sorted(f for f in os.listdir(FIXTURE_DIR) if f.endswith(".json"))
+            except Exception:
+                names = []
+            return _http_response(200, json.dumps({"fixtures": names}, indent=2) + "\n")
+
+        if path == "/fixture":
+            # The fixture arrives as a base64url QUERY parameter, not a POST
+            # body. The websockets library parses only the request LINE and
+            # HEADERS during the handshake - websockets.http11.Request has no
+            # body field at all (verified: fields are path/headers/method/
+            # protocol), so a POST body is never read and the request just
+            # hangs. A query parameter is the only payload process_request can
+            # actually see.
+            raw = b""
+            try:
+                blob = urllib.parse.parse_qs(_request_query(request)).get("data", [""])[0]
+                if blob:
+                    raw = base64.urlsafe_b64decode(blob + "=" * (-len(blob) % 4))
+            except Exception as e:
+                return _http_response(400, json.dumps(
+                    {"error": f"could not decode ?data=: {e}"}) + "\n")
+            if not raw:
+                return _http_response(400, json.dumps(
+                    {"error": "no fixture supplied",
+                     "hint": "GET /fixture?data=<base64url of the fixture JSON>"}) + "\n")
+            if len(raw) > MAX_FIXTURE_BYTES:
+                return _http_response(413, json.dumps(
+                    {"error": "fixture too large",
+                     "limit_bytes": MAX_FIXTURE_BYTES}) + "\n")
+            try:
+                fx = json.loads(raw.decode("utf-8", "replace"))
+            except Exception as e:
+                return _http_response(400, json.dumps({"error": f"bad JSON: {e}"}) + "\n")
+            if not isinstance(fx, dict) or "turns" not in fx:
+                return _http_response(400, json.dumps(
+                    {"error": "not a ZeroScript fixture (no 'turns')"}) + "\n")
+            name = _fixture_filename(fx)
+            try:
+                os.makedirs(FIXTURE_DIR, exist_ok=True)
+                with open(os.path.join(FIXTURE_DIR, name), "w", encoding="utf-8") as f:
+                    json.dump(fx, f, indent=2)
+            except Exception as e:
+                return _http_response(500, json.dumps({"error": f"could not save: {e}"}) + "\n")
+            log(f"captured a page fixture from the browser: {name} "
+                f"({len(fx.get('turns') or [])} turns)", "gr")
+            return _http_response(200, json.dumps(
+                {"saved": name, "turns": len(fx.get("turns") or []),
+                 "replay": "node test-fixture-replay.js"}, indent=2) + "\n")
 
         # ── the testable surface ─────────────────────────────────────────────
         # The WebSocket API can only be exercised from a browser extension,

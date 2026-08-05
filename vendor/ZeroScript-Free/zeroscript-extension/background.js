@@ -404,6 +404,26 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse(r);
         break;
       }
+      case "save_fixture": {
+        // POST is not possible here (the bridge's HTTP layer cannot read
+        // bodies), so the fixture travels as a base64url query parameter.
+        try {
+          const json = JSON.stringify(msg.fixture || {});
+          const b64 = btoa(unescape(encodeURIComponent(json)))
+            .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+          const base = (bridgeUrl || DEFAULT_URL)
+            .replace(/^ws:/, "http:").replace(/^wss:/, "https:");
+          const u = new URL(base);
+          u.pathname = "/fixture";
+          u.searchParams.set("data", b64);
+          if (bridgeToken) u.searchParams.set("token", bridgeToken);
+          const res = await fetch(u.toString());
+          sendResponse(await res.json());
+        } catch (e) {
+          sendResponse({ ok: false, error: String((e && e.message) || e) });
+        }
+        break;
+      }
       case "reload_extension":
         // Unpacked extensions may reload themselves. This is what removes the
         // manual "reload the extension" step after an update.
