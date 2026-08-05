@@ -1588,7 +1588,8 @@ def _client_authorized(ws):
 # and exposes NOTHING sensitive - just liveness. Every other endpoint honours
 # ZS_BRIDGE_TOKEN exactly like the WebSocket, so a remote deploy does not leak
 # its tool list or config to anonymous callers.
-HTTP_ROUTES = ("/", "/healthz", "/health", "/status", "/favicon.ico")
+HTTP_ROUTES = ("/", "/healthz", "/health", "/status", "/favicon.ico",
+               "/tools", "/call")
 
 
 def _http_status_payload():
@@ -1670,6 +1671,62 @@ def http_process_request(connection, request):
 
         if path == "/status":
             return _http_response(200, json.dumps(_http_status_payload(), indent=2) + "\n")
+
+        # ── the testable surface ─────────────────────────────────────────────
+        # The WebSocket API can only be exercised from a browser extension,
+        # which makes the bridge untestable from a terminal, a CI job, or any
+        # environment without Chrome. These two routes expose the SAME calls
+        # over plain HTTP, so `curl` can verify the whole stack end to end.
+        if path == "/tools":
+            try:
+                tools = mgr.list_tools()
+            except Exception as e:
+                return _http_response(500, json.dumps({"error": str(e)}) + "\n")
+            return _http_response(200, json.dumps(
+                {"count": len(tools), "tools": tools}, indent=2) + "\n")
+
+        if path == "/call":
+            # NOTE: the call is passed as a QUERY STRING, not a POST body.
+            # websockets' process_request hook is never invoked for a request
+            # that carries a body - the library cannot parse one, and curl just
+            # sees the connection close (exit 52). Verified directly against
+            # websockets 17. A query string reaches the handler reliably:
+            #   curl -G --data-urlencode 'name=read_file' \
+            #        --data-urlencode 'args={"path":"note.txt"}' \
+            #        http://127.0.0.1:17613/call
+            raw = getattr(request, "path", "") or ""
+            qs = urllib.parse.parse_qs(raw.split("?", 1)[1]) if "?" in raw else {}
+            name = (qs.get("name", [""])[0] or "").strip()
+            if not name:
+                return _http_response(400, json.dumps({
+                    "error": "missing ?name=",
+                    "usage": "GET /call?name=<tool>&args=<json>",
+                    "note": "a POST body cannot be used here - see the source",
+                    "example": "curl -G --data-urlencode 'name=read_file' "
+                               "--data-urlencode 'args={\"path\":\"note.txt\"}' "
+                               "http://127.0.0.1:17613/call",
+                }, indent=2) + "\n")
+            try:
+                args = json.loads(qs.get("args", ["{}"])[0] or "{}")
+            except Exception as e:
+                return _http_response(400, json.dumps(
+                    {"error": f"args is not valid JSON: {e}"}) + "\n")
+            if not isinstance(args, dict):
+                return _http_response(400, json.dumps(
+                    {"error": "args must be a JSON object"}) + "\n")
+            try:
+                timeout = float(qs.get("timeout", ["60"])[0])
+            except Exception:
+                timeout = 60.0
+            res = safe_call(name, args, timeout)
+            # Images are base64 and can be megabytes; summarise rather than
+            # dumping them into a terminal.
+            imgs = res.pop("images", None) or []
+            if imgs:
+                res["images"] = [{"mimeType": i.get("mimeType"),
+                                  "bytes": len(i.get("data") or "") * 3 // 4} for i in imgs]
+            return _http_response(200 if res.get("ok") else 400,
+                                  json.dumps(res, indent=2) + "\n")
 
         # "/" - a human-readable page, so opening the bridge in a browser
         # answers "is it running?" without any tooling.

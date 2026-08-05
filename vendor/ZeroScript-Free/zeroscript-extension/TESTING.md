@@ -135,3 +135,34 @@ Refusals, which matter more than the happy path:
 | Local commits ahead of origin | refuses (no fast-forward possible) |
 | Not a git clone | reports it and carries on running |
 | No network / git missing | reports it and carries on running |
+
+## HTTP API — testing the bridge without a browser
+
+The WebSocket API can only be driven by the extension, so the bridge could not
+be exercised from a terminal, from CI, or from any machine without Chrome. That
+is precisely what turned every provider bug into a guess-and-check loop. The
+same calls are now available over plain HTTP.
+
+```bash
+curl localhost:17613/healthz        # liveness (open, no token - a PaaS polls it)
+curl localhost:17613/status         # target, servers, tool counts
+curl localhost:17613/tools          # full tool list with schemas
+curl -G --data-urlencode 'name=read_file' \
+     --data-urlencode 'args={"path":"note.txt"}' \
+     localhost:17613/call           # run a tool
+open  http://localhost:17613/       # human-readable status page
+```
+
+With `ZS_BRIDGE_TOKEN` set, everything except `/healthz` needs
+`?token=...` or `Authorization: Bearer ...`.
+
+### Why `/call` uses a query string, not a POST body
+
+`websockets`' `process_request` hook is **never invoked** for a request that
+carries a body — the library cannot parse one, and curl simply sees the
+connection close (exit 52). Verified directly against websockets 17. A query
+string reaches the handler reliably, so that is the interface.
+
+```bash
+python3 test_http_api.py    # 26 assertions against a real running bridge
+```
