@@ -140,5 +140,25 @@ ok("and explains why", "git" in (r.get("detail") or "").lower(), r.get("detail")
 shutil.rmtree(root, ignore_errors=True)
 shutil.rmtree(plain, ignore_errors=True)
 
+# ── fix-termux.sh must not ship a stale copy of the config ─────────────────
+# It did: the script wrote 6 tools while config.termux.json shipped 9, so
+# running it DOWNGRADED an install and silently removed screenshot/show_image.
+fix_sh = os.path.join(HERE, "fix-termux.sh")
+if os.path.exists(fix_sh):
+    body = open(fix_sh).read()
+    ok("fix-termux.sh prefers the shipped config",
+       "cp config.termux.json config.json" in body)
+    ok("fix-termux.sh says why the fallback is smaller",
+       "fallback" in body.lower())
+    shipped = json.load(open(os.path.join(HERE, "config.termux.json")))
+    names = [t["name"] for t in shipped["servers"]["phone"]["tools"]]
+    ok("the shipped config still has the image tools",
+       "screenshot" in names and "show_image" in names, names)
+
+# ── the not-a-git-install message must be actionable ───────────────────────
+up = open(os.path.join(HERE, "updater.py")).read()
+ok("not-a-git-install gives a real command", "git clone -b" in up)
+ok("and preserves the old copy", "zs-app.old" in up)
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

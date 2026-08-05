@@ -25,6 +25,11 @@ import subprocess
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Where an updatable install comes from. Named here so the "not a git install"
+# message can hand back a command that actually works, instead of the useless
+# "download the latest version manually".
+_REPO = "https://github.com/hipliteidk-glitch/potential-waddle"
+_BRANCH = "arena/019f97f5-potential-waddle"
 # The checkout root: this file lives in vendor/ZeroScript-Free/ inside the repo.
 GIT_TIMEOUT = 60
 
@@ -70,7 +75,13 @@ def check(timeout=GIT_TIMEOUT):
     if not is_git_install():
         return {"ok": False, "reason": "not a git install",
                 "detail": "This copy was not cloned with git, so it cannot self-update. "
-                          "Download the latest version manually."}
+                          "To switch to an updatable install, run in Termux:\n"
+                          "  cd ~ && mv zs-app zs-app.old\n"
+                          "  git clone -b " + _BRANCH + " " + _REPO + " zs-app\n"
+                          "  cd zs-app/vendor/ZeroScript-Free\n"
+                          "  cp config.termux.json config.json\n"
+                          "  bash start-termux.sh -b\n"
+                          "Your old copy stays in ~/zs-app.old."}
     st = local_state()
     ok, out = _git("fetch", "--quiet", "origin", st["branch"], timeout=timeout)
     if not ok:

@@ -49,7 +49,20 @@ mkdir -p "$WS" || die "could not create the workspace folder: $WS"
 [ -e "$WS/README.txt" ] || printf 'Your ZeroScript workspace. The AI can read and write files here.\n' > "$WS/README.txt"
 
 # ── 4. write a phone config directly (no dependency on another file) ───────
-cat > config.json <<'JSON'
+# Prefer the SHIPPED config over a copy baked into this script. The inline
+# version below silently drifted out of date - it wrote 6 tools while
+# config.termux.json had 9, so running this script DOWNGRADED an install and
+# removed screenshot/show_image without saying so. One source of truth.
+if [ -f config.termux.json ]; then
+  cp config.termux.json config.json
+  # Count the TOOLS, not every "name": key - the target block has one too,
+  # which reported 10 for a 9-tool config.
+  _n=$(python3 -c 'import json,sys;d=json.load(open("config.termux.json"));print(sum(len(s.get("tools",[])) for s in d.get("servers",{}).values()))' 2>/dev/null || echo "?")
+  say "Wrote config.json from config.termux.json (${_n} tools)."
+else
+  warn "config.termux.json is missing - writing a minimal fallback config."
+  warn "Re-clone to get the full tool set (screenshot, show_image, ...)."
+  cat > config.json <<'JSON'
 {
   "target": {
     "id": "phone",
@@ -77,36 +90,6 @@ cat > config.json <<'JSON'
           "run": ["cat", "{path}"]
         },
         {
-          "name": "write_file",
-          "description": "Create or overwrite a text file with the given content.",
-          "params": {
-            "path": { "type": "string", "description": "file to write", "required": true },
-            "content": { "type": "string", "description": "the full text to put in the file", "required": true }
-          },
-          "cwd": "{ZS_WORKSPACE}",
-          "run": ["python", "-c", "import sys,pathlib;p=pathlib.Path(sys.argv[1]);p.parent.mkdir(parents=True,exist_ok=True);p.write_text(sys.argv[2]);print(f'wrote {len(sys.argv[2])} chars to {p}')", "{path}", "{content}"]
-        },
-        {
-          "name": "append_file",
-          "description": "Append a line of text to the end of a file.",
-          "params": {
-            "path": { "type": "string", "description": "file to append to", "required": true },
-            "content": { "type": "string", "description": "text to append", "required": true }
-          },
-          "cwd": "{ZS_WORKSPACE}",
-          "run": ["python", "-c", "import sys,pathlib;p=pathlib.Path(sys.argv[1]);p.parent.mkdir(parents=True,exist_ok=True);f=p.open('a');f.write(sys.argv[2]+chr(10));f.close();print('appended to '+str(p))", "{path}", "{content}"]
-        },
-        {
-          "name": "search_text",
-          "description": "Search for a text pattern and show matching lines with line numbers.",
-          "params": {
-            "pattern": { "type": "string", "description": "text to find", "required": true },
-            "path": { "type": "string", "description": "folder or file to search", "default": "." }
-          },
-          "cwd": "{ZS_WORKSPACE}",
-          "run": ["grep", "-rn", "--", "{pattern}", "{path}"]
-        },
-        {
           "name": "phone_status",
           "description": "Show the date and free space on the phone.",
           "cwd": "{ZS_WORKSPACE}",
@@ -117,6 +100,7 @@ cat > config.json <<'JSON'
   }
 }
 JSON
+fi
 
 # ── 5. prove it is no longer Roblox ────────────────────────────────────────
 if grep -q "launch_studio_mcp" config.json; then
