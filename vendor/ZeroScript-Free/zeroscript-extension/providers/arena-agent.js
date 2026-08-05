@@ -81,7 +81,14 @@ const ZSProvider = (() => {
 
   const S = {
     // The composer: TipTap contenteditable.
-    editor: '[contenteditable="true"].tiptap, [contenteditable="true"].ProseMirror',
+    // Match on the TipTap classes only - NOT on contenteditable="true".
+    // Arena DISABLES the composer while the agent is generating (it flips
+    // contenteditable off), so a selector requiring "true" returns null for the
+    // whole generation. Reported live by the in-page self-test:
+    //   "getEditor() finds the composer -> null" with generating:true.
+    // The bar then cannot anchor and the loop cannot send its next turn.
+    editor: '.tiptap[contenteditable], .ProseMirror[contenteditable], ' +
+            'div.tiptap, div.ProseMirror',
     // A turn body is .prose that is NOT the composer.
     proseAny: ".prose",
     sendAria: /send message/i,
@@ -217,9 +224,20 @@ const ZSProvider = (() => {
   const isBusyNow = () => isGenerating();
 
   // ── composer ───────────────────────────────────────────────────────────────
+  // The composer, whether or not it is currently editable. Prefer a visible,
+  // editable one; fall back to a visible disabled one (mid-generation) so the
+  // bar keeps its anchor and the core can wait rather than error out.
   const getEditor = () => {
-    const e = document.querySelector(S.editor);
-    return e && e.offsetParent !== null ? e : null;
+    const all = [...document.querySelectorAll(S.editor)]
+      .filter((e) => e.offsetParent !== null);
+    if (!all.length) return null;
+    return all.find((e) => e.getAttribute("contenteditable") === "true") || all[0];
+  };
+  // Can we type into it right now? typeAndSend waits on this instead of
+  // assuming the composer is always writable.
+  const editorWritable = () => {
+    const e = getEditor();
+    return !!e && e.getAttribute("contenteditable") === "true";
   };
   const editorText = () => {
     const e = getEditor();
@@ -276,8 +294,14 @@ const ZSProvider = (() => {
   }
 
   async function typeAndSend(text) {
-    const editor = getEditor();
+    let editor = getEditor();
     if (!editor) throw new Error("Arena Agent input box not found");
+    // The composer is disabled for the whole of the previous generation. Typing
+    // into it then silently does nothing, so wait for it to come back first.
+    if (!editorWritable()) {
+      await waitFor(editorWritable, 120000);
+      editor = getEditor() || editor;
+    }
     setEditorText(editor, text);
     const ready = () => {
       const b = sendButton();
@@ -363,7 +387,8 @@ const ZSProvider = (() => {
     assistantCount, userCount, lastAssistant, lastAssistantId, readAssistant,
     streamLen, snapshot,
     // composer / state
-    getEditor, editorText, chatIsEmpty, isFreshChat, composerFrame, barAnchor,
+    getEditor, editorWritable, editorText, chatIsEmpty, isFreshChat,
+    composerFrame, barAnchor,
     setInputLock, typeAndSend, stopGeneration,
     isGenerating, isBusyNow, isHardGenerating,
     enforceComposer, ensureComposerReady, modeWarning, captchaPresent,

@@ -150,6 +150,38 @@ ok("getEditor() finds the TipTap composer", !!P.getEditor());
 ok("editorText() reads it", P.editorText() === composerText, P.editorText());
 ok("chatIsEmpty() is false with turns present", P.chatIsEmpty() === false);
 
+// ── the composer while GENERATING ──────────────────────────────────────────
+// Reported by the in-page self-test on a live page (generating:true):
+//   "getEditor() finds the composer -> null - the bar cannot anchor"
+// Arena disables the composer for the whole generation, so a selector keyed on
+// contenteditable="true" finds nothing and the loop cannot send its next turn.
+{
+  const gen = new JSDOM(`<!doctype html><html><body>
+    <div class="px-3 pb-3"><div class="flex flex-col gap-2">
+      <div class="${PROSE}">generating…</div></div></div>
+    <div class="relative px-4 pb-4"><div class="flex flex-col gap-2">
+      <div contenteditable="false" class="tiptap ProseMirror prose"></div>
+    </div></div>
+    <button aria-label="Send message"></button>
+  </body></html>`, { url: "https://arena.ai/agent" });
+  Object.defineProperty(gen.window.HTMLElement.prototype, "offsetParent",
+    { get() { return this.parentNode || null; } });
+  const sb = {
+    window: gen.window, document: gen.window.document,
+    location: gen.window.location, navigator: gen.window.navigator,
+    setTimeout, clearTimeout, console, Date,
+    InputEvent: gen.window.InputEvent, KeyboardEvent: gen.window.KeyboardEvent,
+    Event: gen.window.Event,
+  };
+  vm.createContext(sb);
+  vm.runInContext(providerSrc + "\n;globalThis.__P = ZSProvider;", sb);
+  const PG = sb.__P;
+  ok("getEditor() still finds a DISABLED composer", !!PG.getEditor());
+  ok("editorWritable() reports it is not writable", PG.editorWritable() === false);
+  ok("the disabled composer is still not a turn",
+     !PG.allItems().some((i) => i.querySelector && i.querySelector(".tiptap")));
+}
+
 // ── an empty conversation ──────────────────────────────────────────────────
 const dom2 = new JSDOM(`<!doctype html><html><body>
   <div class="relative px-4 pb-4"><div class="flex flex-col gap-2">

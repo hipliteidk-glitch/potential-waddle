@@ -120,10 +120,21 @@ const ZSSelfTest = (() => {
           }
         }
       });
+      // Wrap the turn in its ancestor chain. The ROLE class lives on an
+      // ancestor (user turns carry "text-text-primary ... py-2"), so exporting
+      // the turn alone makes every user turn replay as an assistant turn -
+      // caught by replaying a real capture. Rebuild the ancestors as empty
+      // shells so the role survives without dragging in siblings.
+      const chain = ancestry(it);
+      let html = clone.outerHTML.slice(0, 4000);
+      for (const a of chain.slice(1)) {
+        const cls = a.cls ? ` class="${a.cls.replace(/"/g, "&quot;")}"` : "";
+        html = `<${a.tag.toLowerCase()}${cls}>${html}</${a.tag.toLowerCase()}>`;
+      }
       seen.push({
         role: p && p.isUserItem(it) ? "user" : "assistant",
-        chain: ancestry(it),
-        html: clone.outerHTML.slice(0, 4000),
+        chain,
+        html,
       });
     }
     return {
