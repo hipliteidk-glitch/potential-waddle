@@ -172,7 +172,25 @@ upBtn.addEventListener("click", () => {
   showUpdate("Checking…");
   chrome.runtime.sendMessage({ type: "check_update" }, (r) => {
     const i = r && r.info;
-    if (!r || !r.ok || !i) { showUpdate("Bridge offline - start it first."); return; }
+    if (!r || !r.ok || !i) {
+      // Distinguish "no bridge" from "a bridge too old to answer this". The
+      // popup said "Bridge offline" while the SAME popup showed a connected
+      // bridge with 15 tools - a flat contradiction for the user. The real
+      // cause is a bridge process started before check_update existed, which
+      // needs a pull + restart, not starting.
+      chrome.runtime.sendMessage({ type: "status" }, (s) => {
+        if (s && s.connected) {
+          showUpdate("This bridge is running an older version that cannot " +
+                     "self-update yet.\n\nIn Termux:\n" +
+                     "  cd ~/zs-app && git pull\n" +
+                     "  bash start-termux.sh --stop && bash start-termux.sh -b\n\n" +
+                     "After that restart, this button works.");
+        } else {
+          showUpdate("Bridge offline - start it first.");
+        }
+      });
+      return;
+    }
     if (!i.ok) { showUpdate((i.reason || "check failed") + "\n" + (i.detail || "")); return; }
     if (!i.updates) { showUpdate("Up to date (" + (i.sha || "") + ")."); return; }
     const list = (i.changes || []).slice(0, 5).map((c) => "  " + c).join("\n");

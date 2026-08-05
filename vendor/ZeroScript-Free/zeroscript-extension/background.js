@@ -400,7 +400,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
       case "check_update":
       case "apply_update": {
-        const r = await send({ type: msg.type }, 90000);
+        // A bridge started before these handlers existed simply never replies,
+        // so the request would sit for the full timeout before failing. A
+        // check is a fetch (seconds); an apply may pull, so it gets longer.
+        // Short enough that "your bridge is out of date" appears promptly.
+        const t = msg.type === "check_update" ? 20000 : 90000;
+        const r = await send({ type: msg.type }, t);
         sendResponse(r);
         break;
       }
