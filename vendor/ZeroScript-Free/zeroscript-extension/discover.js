@@ -52,6 +52,14 @@
     const t = (e.textContent || "").trim();
     if (t.length < 15 || t.length > 4000) continue;
     if (e.querySelector('[contenteditable="true"], textarea')) continue; // composer
+    // Skip NAVIGATION, not conversation. A sidebar history list looks a lot
+    // like a transcript to a naive scan: repeated containers holding text. But
+    // its entries are LINKS. A first capture returned two chat TITLES
+    // ("Clarification Request", "Accidental Send") wrapped in <a> as if they
+    // were messages, which would have produced a provider that reads the
+    // sidebar instead of the chat.
+    if (e.closest("a, nav, aside, header, footer")) continue;
+    if (e.closest('[role="navigation"], [role="banner"], [role="complementary"]')) continue;
     counts.set(c, (counts.get(c) || 0) + 1);
   }
   const repeated = [...counts.entries()]
@@ -94,6 +102,11 @@
     sampleTurns: turns,
     buttons,
     hints: {
+      // A visible sign-in control means the transcript almost certainly is not
+      // rendered, so an empty capture says nothing about the site's real DOM.
+      looksSignedOut: [...document.querySelectorAll("button, a")].some((b) =>
+        /^(log ?in|sign ?in|登录|登陸)$/i.test((b.textContent || "").trim())),
+      noMessagesFound: turns.length === 0,
       noTurnList: lists.length === 0,
       composerIsContentEditable: editors.some((e) => e.kind === "contenteditable"),
       // A composer that shares a class with turn bodies is the collision that
@@ -102,6 +115,15 @@
         e.cls.split(/\s+/).some((c) => best.split(/\s+/).includes(c))),
     },
   };
+
+  if (report.hints.looksSignedOut || report.hints.noMessagesFound) {
+    console.warn(
+      "%cZeroScript discover: this capture is NOT usable yet.",
+      "font-weight:bold");
+    if (report.hints.looksSignedOut) console.warn("  - a Log In / Sign In control is visible, so you are signed out");
+    if (report.hints.noMessagesFound) console.warn("  - no message containers were found");
+    console.warn("  Log in, send TWO messages, wait for the replies, then run this again.");
+  }
 
   const out = JSON.stringify(report, null, 2);
   try { copy(out); console.log("Copied to clipboard."); } catch { /* copy() is devtools-only */ }
