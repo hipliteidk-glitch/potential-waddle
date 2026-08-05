@@ -40,8 +40,24 @@ const ZSSelfTest = (() => {
     // The composer must be findable, or nothing can ever be sent.
     let editor = null;
     try { editor = p.getEditor(); } catch (e) { /* reported below */ }
+    // When this fails, say WHY. "null" alone cost two round-trips: the node may
+    // be absent, present but invisible, or present but not editable, and each
+    // implies a different fix.
+    let why = "";
+    if (!editor) {
+      const anyTip = document.querySelectorAll(".tiptap, .ProseMirror").length;
+      const anyCE = document.querySelectorAll("[contenteditable]").length;
+      const hidden = [...document.querySelectorAll(".tiptap, .ProseMirror")]
+        .filter((e) => !(e.getClientRects && e.getClientRects().length)).length;
+      why = ` [.tiptap/.ProseMirror nodes=${anyTip}, of which laid-out=0 hidden=${hidden};` +
+            ` [contenteditable] nodes=${anyCE}]`;
+      if (anyTip === 0 && anyCE === 0) why += " -> composer is UNMOUNTED right now";
+      else if (hidden === anyTip && anyTip > 0) why += " -> composer exists but is HIDDEN";
+      else why += " -> composer exists but the selector missed it";
+    }
     add("getEditor() finds the composer", !!editor,
-        editor ? tagOf(editor) : "null - the bar cannot anchor and sending is impossible");
+        editor ? `${tagOf(editor)} (writable=${editor.getAttribute("contenteditable") === "true"})`
+               : "null - the bar cannot anchor and sending is impossible" + why);
 
     // Turn collection is where every failure so far has lived.
     let items = [];

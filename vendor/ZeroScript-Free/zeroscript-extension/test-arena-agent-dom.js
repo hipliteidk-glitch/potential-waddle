@@ -182,6 +182,42 @@ ok("chatIsEmpty() is false with turns present", P.chatIsEmpty() === false);
      !PG.allItems().some((i) => i.querySelector && i.querySelector(".tiptap")));
 }
 
+// ── composer present but offsetParent === null ─────────────────────────────
+// Reported TWICE by the live self-test with generating:true, even though the
+// bootstrap turn had already been sent through that same composer - so the
+// selector was right and the VISIBILITY test was wrong. offsetParent is null
+// for position:fixed elements and inside display:none ancestors; Arena
+// re-renders the composer area while generating.
+{
+  const fx = new JSDOM(`<!doctype html><html><body>
+    <div class="px-3 pb-3"><div class="flex flex-col gap-2">
+      <div class="${PROSE}">reply</div></div></div>
+    <div class="relative px-4 pb-4"><div class="flex flex-col gap-2">
+      <div contenteditable="true" class="tiptap ProseMirror prose"></div>
+    </div></div>
+  </body></html>`, { url: "https://arena.ai/agent" });
+  // offsetParent null everywhere (what a fixed/hidden container looks like),
+  // but the element still has layout boxes.
+  Object.defineProperty(fx.window.HTMLElement.prototype, "offsetParent",
+    { get() { return null; } });
+  fx.window.HTMLElement.prototype.getClientRects = function () {
+    return this.classList && (this.classList.contains("tiptap") ||
+      this.classList.contains("prose")) ? [{ width: 300, height: 40 }] : [];
+  };
+  const sb = {
+    window: fx.window, document: fx.window.document,
+    location: fx.window.location, navigator: fx.window.navigator,
+    setTimeout, clearTimeout, console, Date,
+    InputEvent: fx.window.InputEvent, KeyboardEvent: fx.window.KeyboardEvent,
+    Event: fx.window.Event,
+  };
+  vm.createContext(sb);
+  vm.runInContext(providerSrc + "\n;globalThis.__P = ZSProvider;", sb);
+  const PF = sb.__P;
+  ok("getEditor() survives offsetParent === null", !!PF.getEditor());
+  ok("and reports it as writable", PF.editorWritable() === true);
+}
+
 // ── an empty conversation ──────────────────────────────────────────────────
 const dom2 = new JSDOM(`<!doctype html><html><body>
   <div class="relative px-4 pb-4"><div class="flex flex-col gap-2">

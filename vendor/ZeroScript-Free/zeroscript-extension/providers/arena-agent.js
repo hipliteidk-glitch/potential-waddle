@@ -227,11 +227,28 @@ const ZSProvider = (() => {
   // The composer, whether or not it is currently editable. Prefer a visible,
   // editable one; fall back to a visible disabled one (mid-generation) so the
   // bar keeps its anchor and the core can wait rather than error out.
+  // Visibility WITHOUT offsetParent. offsetParent is null for a
+  // position:fixed element and for anything inside a display:none ancestor -
+  // and Arena's composer area is re-rendered while the agent generates. A
+  // strict offsetParent filter therefore discarded a perfectly usable composer
+  // and getEditor() returned null for the whole generation (reported twice by
+  // the in-page self-test, both times with generating:true, even though the
+  // bootstrap turn had already been sent successfully through that same
+  // composer). getClientRects() is the robust test.
+  const isVisible = (e) => {
+    if (!e) return false;
+    if (e.getClientRects && e.getClientRects().length) return true;
+    return e.offsetParent !== null; // fallback for detached-but-laid-out cases
+  };
+
+  // Widen progressively rather than failing: an editor that exists but is
+  // momentarily hidden is far more useful than null, which strands the bar.
   const getEditor = () => {
-    const all = [...document.querySelectorAll(S.editor)]
-      .filter((e) => e.offsetParent !== null);
+    const all = [...document.querySelectorAll(S.editor)];
     if (!all.length) return null;
-    return all.find((e) => e.getAttribute("contenteditable") === "true") || all[0];
+    const visible = all.filter(isVisible);
+    const pool = visible.length ? visible : all;
+    return pool.find((e) => e.getAttribute("contenteditable") === "true") || pool[0];
   };
   // Can we type into it right now? typeAndSend waits on this instead of
   // assuming the composer is always writable.
