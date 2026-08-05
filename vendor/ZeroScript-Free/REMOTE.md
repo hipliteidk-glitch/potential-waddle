@@ -61,6 +61,26 @@ build config.
 Keep the token in Railway's variables. Never commit it, and never paste it into
 a chat — anyone holding it can run your tools.
 
+## HTTP endpoints
+
+The bridge serves plain HTTP on the **same port** as the WebSocket, so a health
+check or a browser can reach it:
+
+| Path | Auth | Purpose |
+| --- | --- | --- |
+| `/healthz` | none | Liveness for a PaaS probe. Returns `{"status":"ok"}` and nothing else. |
+| `/status` | token | Target, servers, tool count, connected clients. |
+| `/` | token | A human-readable page: is it running, what is connected. |
+
+Without this a plain `GET` gets `426 Upgrade Required`, which Railway reads as
+DOWN - it then kills and restarts the container in a loop. `railway.json` sets
+`healthcheckPath: /healthz`.
+
+`/healthz` is deliberately public: a health checker cannot send a token, and
+the response contains only liveness and a version. Everything else honours
+`ZS_BRIDGE_TOKEN` exactly like the WebSocket, via `?token=` or
+`Authorization: Bearer`.
+
 ## Pointing the extension at it
 
 Open the ZeroScript popup → **🔌 Bridge endpoint**:

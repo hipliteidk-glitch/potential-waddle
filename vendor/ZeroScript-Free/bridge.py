@@ -1572,6 +1572,129 @@ def _client_authorized(ws):
     return hmac.compare_digest(supplied, AUTH_TOKEN)
 
 
+# ══════════════════════════════════════════════════════════════════════════
+#  HTTP  - served on the SAME port as the WebSocket
+# ══════════════════════════════════════════════════════════════════════════
+# Why: a WebSocket-only server answers a plain GET with 426 Upgrade Required,
+# which every PaaS health check (Railway, Fly, Render) reads as DOWN - the
+# container is then killed and restarted in a loop. It also means "is my bridge
+# actually up?" has no answer from a browser. Both are fixed by handling a few
+# plain HTTP paths before the upgrade.
+#
+# process_request runs BEFORE the WebSocket handshake: return None to let the
+# upgrade proceed, or a Response to answer as HTTP.
+#
+# AUTH: /healthz is deliberately public (a health checker cannot send a token)
+# and exposes NOTHING sensitive - just liveness. Every other endpoint honours
+# ZS_BRIDGE_TOKEN exactly like the WebSocket, so a remote deploy does not leak
+# its tool list or config to anonymous callers.
+HTTP_ROUTES = ("/", "/healthz", "/health", "/status", "/favicon.ico")
+
+
+def _http_status_payload():
+    try:
+        st = probe_studio()
+    except Exception:
+        st = {"app": None, "place": None}
+    return {
+        "service": "zeroscript-bridge",
+        "version": BRIDGE_VERSION,
+        "target": TARGET_PUBLIC,
+        "ready": bool(mgr.any_alive()),
+        "servers": mgr.health(),
+        "tools": len(mgr.list_tools()),
+        "connected_clients": len(clients),
+        "target_connected": st.get("app"),
+        "remote": not _is_loopback(HOST),
+    }
+
+
+def _http_response(status, body, ctype="application/json; charset=utf-8"):
+    from websockets.http11 import Response
+    from websockets.datastructures import Headers
+    raw = body.encode("utf-8") if isinstance(body, str) else body
+    reason = {200: "OK", 401: "Unauthorized", 404: "Not Found",
+              503: "Service Unavailable"}.get(status, "OK")
+    return Response(status, reason, Headers({
+        "Content-Type": ctype,
+        "Content-Length": str(len(raw)),
+        "Cache-Control": "no-store",
+    }), raw)
+
+
+def _request_path(request):
+    p = getattr(request, "path", "") or ""
+    return p.split("?", 1)[0].rstrip("/") or "/"
+
+
+def _http_authorized(request):
+    if not AUTH_TOKEN:
+        return True
+    try:
+        path = getattr(request, "path", "") or ""
+        if "?" in path:
+            tok = urllib.parse.parse_qs(path.split("?", 1)[1]).get("token", [""])[0]
+            if tok and hmac.compare_digest(tok, AUTH_TOKEN):
+                return True
+        raw = (request.headers.get("Authorization") or "")
+        if raw.lower().startswith("bearer "):
+            return hmac.compare_digest(raw[7:].strip(), AUTH_TOKEN)
+    except Exception:
+        return False
+    return False
+
+
+def http_process_request(connection, request):
+    """Answer plain HTTP; return None for a real WebSocket upgrade."""
+    try:
+        if (request.headers.get("Upgrade") or "").lower() == "websocket":
+            return None  # let the WS handshake happen
+        path = _request_path(request)
+        if path not in HTTP_ROUTES:
+            return _http_response(404, json.dumps({"error": "not found"}))
+
+        # Liveness only - no auth, no detail. This is what a PaaS polls.
+        if path in ("/healthz", "/health"):
+            alive = mgr.any_alive()
+            return _http_response(200 if alive else 503, json.dumps(
+                {"status": "ok" if alive else "starting",
+                 "version": BRIDGE_VERSION}) + "\n")
+
+        if path == "/favicon.ico":
+            return _http_response(404, b"", "image/x-icon")
+
+        if not _http_authorized(request):
+            return _http_response(401, json.dumps(
+                {"error": "unauthorized",
+                 "hint": "append ?token=... or send Authorization: Bearer ..."}) + "\n")
+
+        if path == "/status":
+            return _http_response(200, json.dumps(_http_status_payload(), indent=2) + "\n")
+
+        # "/" - a human-readable page, so opening the bridge in a browser
+        # answers "is it running?" without any tooling.
+        p = _http_status_payload()
+        rows = "".join(
+            f"<tr><td>{s['id']}</td><td>{'up' if s['alive'] else 'down'}</td>"
+            f"<td>{s['tools']}</td></tr>" for s in p["servers"])
+        html = f"""<!doctype html><meta charset=utf-8>
+<title>ZeroScript bridge</title>
+<style>body{{font:14px system-ui;background:#16161a;color:#e8e8ec;padding:24px;max-width:40em}}
+code{{background:#222;padding:1px 5px;border-radius:4px}}
+table{{border-collapse:collapse;margin:12px 0}}td,th{{border:1px solid #333;padding:4px 10px;text-align:left}}
+.ok{{color:#34d399}}.no{{color:#fbbf24}}</style>
+<h2>ZeroScript bridge <small>v{p['version']}</small></h2>
+<p class="{'ok' if p['ready'] else 'no'}">{'Running' if p['ready'] else 'Starting - no server is up yet'}
+ &middot; target: <b>{p['target']['name']}</b> &middot; {p['tools']} tool(s)
+ &middot; {p['connected_clients']} extension client(s)</p>
+<table><tr><th>server</th><th>state</th><th>tools</th></tr>{rows}</table>
+<p>This is the local bridge the ZeroScript browser extension talks to.
+Machine-readable: <code>/status</code> &middot; health check: <code>/healthz</code></p>"""
+        return _http_response(200, html, "text/html; charset=utf-8")
+    except Exception as e:  # never let a bad request kill the server
+        return _http_response(503, json.dumps({"error": str(e)[:200]}) + "\n")
+
+
 async def handler(ws):
     peer = getattr(ws, "remote_address", ("?",))[0]
     if not _client_authorized(ws):
@@ -2320,7 +2443,7 @@ async def main():
     try:
         server_ctx = await websockets.serve(
             handler, HOST, PORT, ping_interval=20, ping_timeout=20,
-            max_size=16 * 1024 * 1024)
+            max_size=16 * 1024 * 1024, process_request=http_process_request)
     except OSError as e:
         # errno 10048 (Win) / EADDRINUSE: something we could NOT auto-kill still
         # owns the port - another app, or a python whose cmdline we couldn't read.

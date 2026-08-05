@@ -169,5 +169,62 @@ ok("PaaS-style deploy serves tools", conn and text == "secret-data",
    f"connected={conn} text={text!r}")
 stop(p)
 
+# ── HTTP on the same port ──────────────────────────────────────────────────
+# A WebSocket-only server answers a plain GET with 426, which every PaaS health
+# check reads as DOWN - the container is then killed and restarted in a loop.
+import urllib.request
+import urllib.error
+
+
+def http(port, path, token=None, header=False):
+    url = f"http://127.0.0.1:{port}{path}"
+    req = urllib.request.Request(url)
+    if token and not header:
+        url += ("&" if "?" in path else "?") + "token=" + token
+        req = urllib.request.Request(url)
+    if token and header:
+        req.add_header("Authorization", "Bearer " + token)
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.status, r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode("utf-8", "replace")
+    except Exception as e:
+        return 0, str(e)
+
+
+port = free_port()
+p, out, _ = run_bridge({"ZS_BRIDGE_PORT": str(port)})
+code, body = http(port, "/healthz")
+ok("GET /healthz returns 200 (not 426)", code == 200, f"{code} {body[:80]}")
+ok("/healthz reports a version", '"version"' in body, body[:80])
+code, body = http(port, "/status")
+ok("GET /status works locally without a token", code == 200, f"{code} {body[:80]}")
+ok("/status reports the tool count", '"tools"' in body, body[:120])
+code, body = http(port, "/")
+ok("GET / serves a human-readable page", code == 200 and "<title>" in body, str(code))
+code, _ = http(port, "/nope")
+ok("an unknown path 404s", code == 404, str(code))
+stop(p)
+
+# remote: everything except /healthz must require the token
+tok = secrets.token_urlsafe(32)
+port = free_port()
+p, out, _ = run_bridge({"ZS_BRIDGE_HOST": "0.0.0.0", "ZS_BRIDGE_PORT": str(port),
+                        "ZS_BRIDGE_TOKEN": tok})
+code, body = http(port, "/healthz")
+ok("remote /healthz stays public for PaaS probes", code == 200, str(code))
+ok("remote /healthz leaks nothing but liveness",
+   "servers" not in body and "tools" not in body, body[:100])
+code, _ = http(port, "/status")
+ok("remote /status without a token is 401", code == 401, str(code))
+code, _ = http(port, "/status", token="wrong-token-0123456789")
+ok("remote /status with a wrong token is 401", code == 401, str(code))
+code, body = http(port, "/status", token=tok)
+ok("remote /status with the right token is 200", code == 200, str(code))
+code, _ = http(port, "/status", token=tok, header=True)
+ok("Authorization: Bearer also works", code == 200, str(code))
+stop(p)
+
 print(f"\n{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)
