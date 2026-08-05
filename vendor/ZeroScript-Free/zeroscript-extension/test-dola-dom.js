@@ -164,8 +164,47 @@ const P2 = sb2.__P;
 ok("an empty chat reports 0 turns", P2.allItems().length === 0);
 ok("isFreshChat() is true", P2.isFreshChat() === true);
 ok("lastAssistant() is null", P2.lastAssistant() === null);
-ok("signed out is reported as a mode warning",
-   /log in/i.test(P2.modeWarning()), P2.modeWarning());
+// NOTE: this page has a Log In button but a USABLE composer, which is the
+// logged-in-with-a-promo-strip case. It must NOT warn - warning here would
+// disable Start on a perfectly good empty chat. The genuinely signed-out
+// cases are covered in the block below.
+ok("a usable composer means logged in, even with a Log In control present",
+   P2.modeWarning() === "", P2.modeWarning());
+
+// ── signed-out detection must not block a LOGGED-IN fresh chat ─────────────
+// A visible "Log In" control alone is weak evidence: Dola shows app-promo and
+// upsell strips to signed-in users too. Since the warning DISABLES Start, a
+// false positive would block the agent on a good empty chat - exactly when the
+// user presses Start. Require the composer to be unusable as well.
+{
+  const mk = (html, { disabled = false } = {}) => {
+    const d = new JSDOM(`<!doctype html><html><body>${html}</body></html>`,
+                        { url: "https://www.dola.com/chat/1" });
+    Object.defineProperty(d.window.HTMLElement.prototype, "getClientRects",
+      { value() { return [{ width: 200, height: 30 }]; } });
+    if (disabled) d.window.document.querySelector("textarea").disabled = true;
+    const sb = {
+      window: d.window, document: d.window.document, location: d.window.location,
+      navigator: d.window.navigator, setTimeout, clearTimeout, console, Date,
+      Event: d.window.Event, InputEvent: d.window.InputEvent,
+      KeyboardEvent: d.window.KeyboardEvent,
+    };
+    vm.createContext(sb);
+    vm.runInContext(providerSrc + "\n;globalThis.__P = ZSProvider;", sb);
+    return sb.__P;
+  };
+  const TA = '<textarea class="semi-input-textarea"></textarea>';
+  const LOGIN = "<button>Log In</button>";
+
+  ok("logged in, no login control -> no warning",
+     mk(TA).modeWarning() === "");
+  ok("LOGGED IN but a Log In promo is visible -> still no warning (false positive avoided)",
+     mk(TA + LOGIN).modeWarning() === "", mk(TA + LOGIN).modeWarning());
+  ok("signed out: login control AND a disabled composer -> warns",
+     /log in/i.test(mk(TA + LOGIN, { disabled: true }).modeWarning()));
+  ok("no composer at all + login control -> warns",
+     /log in/i.test(mk(LOGIN).modeWarning()));
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

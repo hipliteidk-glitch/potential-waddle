@@ -223,13 +223,27 @@ const ZSProvider = (() => {
   // ── environment ───────────────────────────────────────────────────────────
   // Every capture so far showed a visible "Log In" control. Signed out, the
   // transcript may not render at all, so say so rather than fail obscurely.
-  const signedOut = () =>
+  // Signed-out detection, deliberately conservative.
+  //
+  // A visible "Log In" control is only WEAK evidence: a logged-in Dola page can
+  // still show one in an app-promo or upsell strip. Since the warning DISABLES
+  // Start, a false positive would block the agent on a perfectly good fresh
+  // chat - precisely when the user presses Start. So require corroboration:
+  // the composer must ALSO be unusable. If we can type, we are in.
+  const loginControlVisible = () =>
     [...document.querySelectorAll("button, a")].some((b) =>
-      /^(log ?in|sign ?in|登录|登陸)$/i.test(txt(b).trim()));
+      vis(b) && /^(log ?in|sign ?in|登录|登陸)$/i.test(txt(b).trim()));
+
+  const composerUsable = () => {
+    const e = getEditor();
+    return !!e && !e.disabled && !e.readOnly;
+  };
+
+  const signedOut = () => loginControlVisible() && !composerUsable();
 
   function modeWarning() {
-    if (signedOut() && chatIsEmpty())
-      return "Log in to <b>Dola</b> first - signed out, the chat is not available.";
+    if (signedOut())
+      return "Log in to <b>Dola</b> first - the chat is not usable while signed out.";
     return "";
   }
   const captchaPresent = () => false;
