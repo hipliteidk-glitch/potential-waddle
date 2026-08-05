@@ -80,7 +80,9 @@ for (const file of files) {
   ok("provider loads", !!P);
 
   const items = P.allItems();
-  const expected = (fx.turns || []).length;
+  // A fixture may deliberately include NON-turn markup (Arena UI chrome) to
+  // prove it is excluded. Count only entries the capture marked as real turns.
+  const expected = (fx.turns || []).filter((t) => t.role !== "chrome").length;
   ok(`finds the captured turns (${expected})`, items.length === expected,
      `found ${items.length}`);
 

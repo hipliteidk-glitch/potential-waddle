@@ -126,9 +126,31 @@ const ZSProvider = (() => {
     return "assistant";
   };
 
+  // Arena's own UI chrome reuses div.flex.flex-col.gap-2. The "Do you want to
+  // undo the last turn? / Undo" banner did, and was counted as the NEWEST
+  // assistant turn: lastAssistant() returned the banner, so the parser saw
+  // "nothing to parse" while the model's real reply sat one turn earlier
+  // (seen live 2026-08-05).
+  //
+  // Exclude by LOCATION rather than by requiring a specific wrapper class.
+  // Turn wrappers vary (px-3 pb-3, px-3 text-text-primary py-2, and
+  // relative pl-6 pr-2 pt-4 for a thought block - requiring px-3 hid that
+  // last one, which a replayed fixture caught). What chrome has in common is
+  // that it lives in the COMPOSER area below the transcript.
+  const inComposerArea = (el) => {
+    let n = el;
+    for (let i = 0; i < 6 && n; i++) {
+      const c = typeof n.className === "string" ? n.className : "";
+      if (/\bpx-4\b/.test(c) && /\bpb-6\b/.test(c)) return true;
+      n = n.parentElement;
+    }
+    return false;
+  };
+
   const isTurnWrap = (el) => {
     if (!el || isComposerNode(el)) return false;
     if (el.querySelector && el.querySelector('[contenteditable="true"]')) return false;
+    if (inComposerArea(el)) return false;
     // A turn counts if it has text, a code/JSON widget, OR a .prose body that
     // is merely still empty.
     //
