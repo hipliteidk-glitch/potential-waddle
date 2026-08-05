@@ -129,11 +129,27 @@ const ZSProvider = (() => {
   const isTurnWrap = (el) => {
     if (!el || isComposerNode(el)) return false;
     if (el.querySelector && el.querySelector('[contenteditable="true"]')) return false;
-    // A turn must carry SOMETHING: text, or a code/JSON widget. This is what
-    // lets a widget-only reply count.
+    // A turn counts if it has text, a code/JSON widget, OR a .prose body that
+    // is merely still empty.
+    //
+    // That last case matters: Arena inserts the assistant's turn BEFORE the
+    // first token arrives, so requiring content made the opening moments of
+    // every reply invisible. assistantCount() then did not rise when the reply
+    // began, and the core could conclude the model never answered - the same
+    // class of failure as the widget-only reply. Caught by the HTTP mock's
+    // "thinking" scenario, not by inspection.
     const txt = (el.textContent || "").trim();
-    const hasWidget = !!(el.querySelector && el.querySelector("pre, code, .not-prose"));
-    return txt.length > 0 || hasWidget;
+    if (txt.length) return true;
+    if (el.querySelector && el.querySelector("pre, code, .not-prose")) return true;
+    // An empty .prose body means a reply that has started but written nothing
+    // yet. Must exclude the COMPOSER, which also carries .prose (tiptap) - the
+    // naive version of this counted the composer's wrapper as a third turn.
+    if (!el.querySelector) return false;
+    const bodies = [...el.querySelectorAll(".prose")]
+      .filter((n) => !n.classList.contains("tiptap") &&
+                     !n.classList.contains("ProseMirror") &&
+                     !n.isContentEditable);
+    return bodies.length > 0;
   };
 
   // Role lives on the grandparent's class list (see DOM notes).

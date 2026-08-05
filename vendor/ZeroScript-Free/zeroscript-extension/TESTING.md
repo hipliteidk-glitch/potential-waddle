@@ -199,3 +199,35 @@ Verified end to end: a live-shaped capture went in over HTTP and came back as
 `python3 test_http_fixture.py` — 14 assertions covering the happy path plus
 missing data, bad base64, a non-fixture object and a JSON array, confirming
 each is rejected with a clear error and that the bridge stays alive.
+
+## Testing Arena over real HTTP
+
+`mock-arena.js` serves replicas of arena.ai/agent — built from real captures —
+over a local HTTP server, so the provider can be driven end-to-end offline.
+
+```bash
+npm install --no-save jsdom
+node test-arena-http.js        # fetch each scenario, run the real provider
+node mock-arena.js             # or browse it: http://127.0.0.1:8731/agent
+```
+
+Scenarios (`?state=`), each a state that has actually caused a bug:
+
+| state | what it reproduces |
+| --- | --- |
+| `chat` | an ordinary conversation |
+| `widget` | a JSON code-widget reply **while generating**, composer disabled |
+| `thinking` | a reply turn inserted before the first token arrives |
+| `consecutive` | two user turns in a row (real transcripts don't alternate) |
+| `empty` | a fresh chat |
+
+**What it does and doesn't prove.** It exercises every selector and DOM branch
+in the provider — where all seven live bugs were — by fetching real HTTP and
+running `providers/arena-agent.js` verbatim. It is *not* a browser: no CSS, no
+React, no genuine streaming. Timing behaviour still needs the real site.
+
+It earned its place immediately: the `thinking` scenario exposed a bug no
+amount of reading had found — Arena inserts the assistant's turn *before* the
+first token, and the provider required content, so the opening moments of every
+reply were invisible. Fixing that naively then counted the composer as a third
+turn, which the same suite caught.
