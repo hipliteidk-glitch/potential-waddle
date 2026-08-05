@@ -31,6 +31,12 @@ import time
 import urllib.parse
 
 try:
+    # Self-update for a git-cloned install (optional).
+    import updater as _updater
+except Exception:
+    _updater = None
+
+try:
     # Plain-command ("no MCP") tool support. Optional: a partial install that
     # only has bridge.py still boots, it just cannot use script servers.
     from script_server import ScriptClient, looks_like_script_spec
@@ -1669,6 +1675,27 @@ async def handler(ws):
                         restart_self()
                     asyncio.create_task(_do_restart())
 
+            elif mtype == "check_update":
+                if _updater is None:
+                    await ws.send(json.dumps({"type": "update_info", "id": rid,
+                        "ok": False, "reason": "unavailable",
+                        "detail": "updater.py is missing from this install."}))
+                else:
+                    info = await asyncio.to_thread(_updater.check)
+                    log(f"update check: {_updater.summary_line(info)}", "cy")
+                    await ws.send(json.dumps({"type": "update_info", "id": rid, **info}))
+
+            elif mtype == "apply_update":
+                if _updater is None:
+                    await ws.send(json.dumps({"type": "update_info", "id": rid,
+                        "ok": False, "reason": "unavailable",
+                        "detail": "updater.py is missing from this install."}))
+                else:
+                    info = await asyncio.to_thread(_updater.apply)
+                    log(f"update: {_updater.summary_line(info)}",
+                        "gr" if info.get("applied") else "yl")
+                    await ws.send(json.dumps({"type": "update_info", "id": rid, **info}))
+
             elif mtype == "restart_mcp":
                 sid = msg.get("server")
                 try:
@@ -2211,6 +2238,36 @@ async def main():
         asyncio.create_task(_supervised(
             "studio_watch", lambda: studio_watch(_st["app"], _st["place"])))
 
+    async def _update_check():
+        """Tell the user once, at startup, if a newer version exists.
+
+        Deliberately NEVER auto-applies: this drives their Roblox place and
+        their files, so a surprise change mid-session is not acceptable. It
+        only reports, with the exact command to take it.
+        """
+        if _updater is None:
+            return
+        await asyncio.sleep(6)  # let the boot banner finish first
+        try:
+            info = await asyncio.to_thread(_updater.check)
+        except Exception as e:
+            log(f"update check failed: {e}", "dim", terminal=False)
+            return
+        if not info.get("ok"):
+            # Offline / not a git install: stay quiet, this is not an error the
+            # user needs pushed at them on every start.
+            log(f"update check skipped ({info.get('reason')})", "dim", terminal=False)
+            return
+        n = info.get("updates", 0)
+        if not n:
+            log("ZeroScript is up to date.", "cy", terminal=False)
+            return
+        lines = [f"{n} ZeroScript update(s) available:"]
+        lines += [f"  {c[:58]}" for c in (info.get("changes") or [])[:4]]
+        lines.append("Update from the extension popup, or run:")
+        lines.append("  git pull && restart the bridge")
+        action_banner(lines)
+
     async def _early_status_pushes():
         """A few follow-up status broadcasts shortly after boot.
 
@@ -2285,6 +2342,10 @@ async def main():
         asyncio.create_task(_boot_and_diagnose())
         asyncio.create_task(_early_studio_guidance())
         asyncio.create_task(_early_status_pushes())
+        # NOT _supervised: that restarts a coroutine when it returns, which
+        # turned this one-shot check into a banner every ~25s (seen in
+        # bridge_debug.log). It guards its own errors already.
+        asyncio.create_task(_update_check())
         await asyncio.Future()  # run forever
 
 

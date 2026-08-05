@@ -108,3 +108,30 @@ issue. Nothing is transmitted anywhere - it goes to your clipboard.
 (`div.px-3` instead of `div.flex.flex-col.gap-2`) makes the replayed fixture
 fail 3 assertions, including "a command in the captured reply is parsed" - the
 exact symptom behind *"Arena Agent did not respond in time"*.
+
+## Self-update
+
+`updater.py` fast-forwards a git-cloned install and reports what changed.
+
+```bash
+python3 updater.py          # check only (never modifies anything)
+python3 updater.py apply    # fast-forward
+python3 test_updater.py     # 20 assertions against real git repos
+```
+
+From the extension: **⬆ Check for updates** in the popup. It checks, applies,
+then reloads the extension. The bridge still needs a manual restart — a process
+cannot safely replace itself mid-tool-call.
+
+It **never updates on its own**. The bridge reports available updates once at
+startup and stops there: this drives your files and your Roblox place, so a
+surprise change mid-session is not acceptable.
+
+Refusals, which matter more than the happy path:
+
+| Situation | Behaviour |
+| --- | --- |
+| Uncommitted changes | refuses, names the files, changes nothing |
+| Local commits ahead of origin | refuses (no fast-forward possible) |
+| Not a git clone | reports it and carries on running |
+| No network / git missing | reports it and carries on running |

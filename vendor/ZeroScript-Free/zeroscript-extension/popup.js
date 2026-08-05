@@ -145,3 +145,39 @@ document.getElementById("selftest").addEventListener("click", () => {
     });
   });
 });
+
+// ── Auto-update ────────────────────────────────────────────────────────────
+// The bridge is a git checkout, so it can fast-forward itself and report what
+// changed. It NEVER updates on its own and never touches a dirty tree - see
+// updater.py. This button is the whole flow: check, apply, reload.
+const upBtn = document.getElementById("update");
+const upOut = document.getElementById("update-out");
+
+function showUpdate(msg) { upOut.style.display = ""; upOut.textContent = msg; }
+
+upBtn.addEventListener("click", () => {
+  showUpdate("Checking…");
+  chrome.runtime.sendMessage({ type: "check_update" }, (r) => {
+    const i = r && r.info;
+    if (!r || !r.ok || !i) { showUpdate("Bridge offline - start it first."); return; }
+    if (!i.ok) { showUpdate((i.reason || "check failed") + "\n" + (i.detail || "")); return; }
+    if (!i.updates) { showUpdate("Up to date (" + (i.sha || "") + ")."); return; }
+    const list = (i.changes || []).slice(0, 5).map((c) => "  " + c).join("\n");
+    showUpdate(i.updates + " update(s) available:\n" + list +
+               "\n\nApplying…");
+    chrome.runtime.sendMessage({ type: "apply_update" }, (r2) => {
+      const j2 = r2 && r2.info;
+      if (!j2) { showUpdate("Update failed - bridge did not respond."); return; }
+      if (!j2.ok || !j2.applied) {
+        showUpdate("NOT updated: " + (j2.reason || "") + "\n" + (j2.detail || ""));
+        return;
+      }
+      showUpdate("Updated " + j2.from + " -> " + j2.to +
+                 "\n\nRestart the bridge in Termux, then this extension reloads.");
+      // Reload the extension so the new content scripts take effect. The bridge
+      // still needs a manual restart - a process cannot replace itself safely
+      // from here, and doing so mid-tool-call could corrupt a run.
+      setTimeout(() => chrome.runtime.sendMessage({ type: "reload_extension" }), 4000);
+    });
+  });
+});

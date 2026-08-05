@@ -284,6 +284,10 @@ function handleBridgeMessage(msg) {
     broadcastStatus();
     return;
   }
+  if (msg.type === "update_info") {
+    resolvePending(msg.id, { ok: true, info: msg });
+    return;
+  }
   if (msg.type === "pong") {
     resolvePending(msg.id, { ok: true });
     return;
@@ -394,6 +398,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         sendResponse(r);
         break;
       }
+      case "check_update":
+      case "apply_update": {
+        const r = await send({ type: msg.type }, 90000);
+        sendResponse(r);
+        break;
+      }
+      case "reload_extension":
+        // Unpacked extensions may reload themselves. This is what removes the
+        // manual "reload the extension" step after an update.
+        sendResponse({ ok: true });
+        setTimeout(() => chrome.runtime.reload(), 250);
+        break;
       case "reconnect":
         await loadEndpoint();
         reconnectDelay = RECONNECT_MIN;
