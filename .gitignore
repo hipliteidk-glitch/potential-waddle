@@ -6,3 +6,7 @@ slides_*/
 voiceover_*/
 __pycache__/
 .venv/
+
+# Android local build intermediates
+.apk-build/
+*.idsig
