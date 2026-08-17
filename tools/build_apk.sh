@@ -20,6 +20,8 @@ ZIPALIGN_LIB="${ZIPALIGN_LIB:-$TOOLS/repos/build-tools/linux-x86/lib64}"
 WORK="$ROOT/.apk-build"
 APP_ID="${APP_ID:-com.animenotify.mobile}"
 TARGET_SDK="${TARGET_SDK:-28}"
+COMPILE_SDK_CODE="${COMPILE_SDK_CODE:-35}"
+COMPILE_SDK_NAME="${COMPILE_SDK_NAME:-15}"
 VERSION_CODE="${VERSION_CODE:-3}"
 VERSION_NAME="${VERSION_NAME:-1.0.2}"
 OUT="${OUTPUT_APK:-$ROOT/AnimeNotify.apk}"
@@ -48,8 +50,8 @@ echo "[2/6] Linking resources and manifest"
   --target-sdk-version "$TARGET_SDK" \
   --version-code "$VERSION_CODE" \
   --version-name "$VERSION_NAME" \
-  --compile-sdk-version-code 35 \
-  --compile-sdk-version-name 15 \
+  --compile-sdk-version-code "$COMPILE_SDK_CODE" \
+  --compile-sdk-version-name "$COMPILE_SDK_NAME" \
   --no-version-vectors \
   -o "$WORK/resources.apk" \
   "$WORK/compiled/resources.zip"
