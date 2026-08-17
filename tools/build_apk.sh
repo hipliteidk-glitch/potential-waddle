@@ -20,8 +20,8 @@ ZIPALIGN_LIB="${ZIPALIGN_LIB:-$TOOLS/repos/build-tools/linux-x86/lib64}"
 WORK="$ROOT/.apk-build"
 APP_ID="${APP_ID:-com.animenotify.mobile}"
 TARGET_SDK="${TARGET_SDK:-28}"
-VERSION_CODE="${VERSION_CODE:-2}"
-VERSION_NAME="${VERSION_NAME:-1.0.1}"
+VERSION_CODE="${VERSION_CODE:-3}"
+VERSION_NAME="${VERSION_NAME:-1.0.2}"
 OUT="${OUTPUT_APK:-$ROOT/AnimeNotify.apk}"
 
 for file in "$JAVA" "$ANDROID_JAR" "$RESOURCE_JAR" "$ECJ" "$DX" "$AAPT2" "$ZIPALIGN" "$APKSIGNER" "$KEYSTORE"; do
@@ -80,9 +80,9 @@ echo "[6/6] Signing and verifying APK"
 rm -f "$OUT" "$OUT.idsig"
 "$JAVA" -jar "$APKSIGNER" sign \
   --ks "$KEYSTORE" \
-  --ks-key-alias androiddebugkey \
-  --ks-pass pass:android \
-  --key-pass pass:android \
+  --ks-key-alias "$KEY_ALIAS" \
+  --ks-pass "pass:$KS_PASS" \
+  --key-pass "pass:$KEY_PASS" \
   --min-sdk-version 21 \
   --v1-signing-enabled true \
   --v2-signing-enabled true \

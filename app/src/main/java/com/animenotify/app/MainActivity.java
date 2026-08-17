@@ -566,7 +566,7 @@ public final class MainActivity extends Activity {
         copy.setOrientation(LinearLayout.VERTICAL);
         copy.setPadding(dp(15), 0, 0, 0);
         copy.addView(text("AnimeNotify", 25, WHITE, true));
-        copy.addView(text("Version 1.0.1  •  compatibility release", 11, MUTED, false));
+        copy.addView(text("Version 1.0.2  •  Xperia compatibility release", 11, MUTED, false));
         logoRow.addView(copy);
         body.addView(logoRow);
 

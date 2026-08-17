@@ -7,6 +7,7 @@ voiceover_*/
 __pycache__/
 .venv/
 
-# Android local build intermediates
+# Android local build intermediates and private signing material
 .apk-build/
+.signing/
 *.idsig
