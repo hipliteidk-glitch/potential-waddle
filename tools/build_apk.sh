@@ -18,7 +18,11 @@ APKSIGNER="${APKSIGNER:-$TOOLS/apksigner.jar}"
 KEYSTORE="${KEYSTORE:-$TOOLS/debug.keystore}"
 ZIPALIGN_LIB="${ZIPALIGN_LIB:-$TOOLS/repos/build-tools/linux-x86/lib64}"
 WORK="$ROOT/.apk-build"
-OUT="$ROOT/AnimeNotify.apk"
+APP_ID="${APP_ID:-com.animenotify.mobile}"
+TARGET_SDK="${TARGET_SDK:-28}"
+VERSION_CODE="${VERSION_CODE:-2}"
+VERSION_NAME="${VERSION_NAME:-1.0.1}"
+OUT="${OUTPUT_APK:-$ROOT/AnimeNotify.apk}"
 
 for file in "$JAVA" "$ANDROID_JAR" "$RESOURCE_JAR" "$ECJ" "$DX" "$AAPT2" "$ZIPALIGN" "$APKSIGNER" "$KEYSTORE"; do
   if [[ ! -e "$file" ]]; then
@@ -38,10 +42,12 @@ echo "[2/6] Linking resources and manifest"
   -I "$RESOURCE_JAR" \
   --manifest "$ROOT/app/src/main/AndroidManifest.xml" \
   --java "$WORK/generated" \
+  --custom-package com.animenotify.app \
+  --rename-manifest-package "$APP_ID" \
   --min-sdk-version 24 \
-  --target-sdk-version 35 \
-  --version-code 1 \
-  --version-name 1.0.0 \
+  --target-sdk-version "$TARGET_SDK" \
+  --version-code "$VERSION_CODE" \
+  --version-name "$VERSION_NAME" \
   --compile-sdk-version-code 35 \
   --compile-sdk-version-name 15 \
   --no-version-vectors \
@@ -77,13 +83,15 @@ rm -f "$OUT" "$OUT.idsig"
   --ks-key-alias androiddebugkey \
   --ks-pass pass:android \
   --key-pass pass:android \
+  --min-sdk-version 21 \
   --v1-signing-enabled true \
   --v2-signing-enabled true \
-  --v3-signing-enabled true \
+  --v3-signing-enabled false \
   --v4-signing-enabled false \
   --out "$OUT" \
   "$WORK/aligned.apk"
-"$JAVA" -jar "$APKSIGNER" verify --verbose --print-certs "$OUT"
+"$JAVA" -jar "$APKSIGNER" verify --verbose --print-certs \
+  --min-sdk-version 21 "$OUT"
 LD_LIBRARY_PATH="$ZIPALIGN_LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
   "$ZIPALIGN" -c -v 4 "$OUT" >/dev/null
 

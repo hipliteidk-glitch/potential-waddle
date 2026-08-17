@@ -32,7 +32,7 @@
             android:exported="false" />
 
         <receiver
-            android:name=".BootReceiver"
+            android:name="com.animenotify.app.BootReceiver"
             android:enabled="true"
             android:exported="true">
             <intent-filter>

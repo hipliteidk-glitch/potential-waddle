@@ -19,7 +19,7 @@ A lightweight native Android airing calendar and reminder app. The ready-to-inst
 2. Open it and allow installation from the browser or file manager if Android asks.
 3. Allow notifications when following the first show.
 
-The included APK is zip-aligned and signed with an Android debug certificate for direct installation. It targets Android 15 (API 35) and supports Android 7.0+ (API 24).
+The included APK is the `1.0.1` compatibility release. It uses the unique package ID `com.animenotify.mobile`, includes both v1 and v2 signatures for older vendor installers, targets Android 9 (API 28), and supports Android 7.0+ (API 24). It is zip-aligned and signed for direct installation.
 
 ## Build
 
